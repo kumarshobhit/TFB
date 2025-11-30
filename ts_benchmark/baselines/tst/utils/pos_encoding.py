@@ -26,7 +26,8 @@ class LearnedPositionalEncoding(nn.Module):
         self.pe = nn.Parameter(torch.randn(max_len, d_model))
 
     def forward(self, x):
-        x = x + self.pe[:x.size(0), :]
+        # x = x + self.pe[:x.size(0), :]
+        x = x + self.pe[:x.size(0), :].unsqueeze(1)
         return self.dropout(x)
 
 class tAPE(nn.Module):
@@ -283,4 +284,4 @@ def get_pos_encoder(pos_encoding):
     elif pos_encoding == 'sinespe':
         return SineSPE
     else:
-        raise ValueError(f"Unknown positional encoding type: {pos_encoding}")
+        raise ValueError(f"Unknown positional encoding type: {pos_encoding}") 

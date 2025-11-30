@@ -21,7 +21,7 @@ MODEL_HYPER_PARAMS = {
     "num_layers": 3,
     "dim_feedforward": 256,
     "dropout": 0.1,
-    "pos_encoding": "sinespe",  # 'fixed' or 'learnable'
+    "pos_encoding": "learned",  # 'fixed' or 'learned
     "activation": "gelu",
     "norm": "BatchNorm",
 

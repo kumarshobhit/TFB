@@ -48,6 +48,7 @@ class TSTransformerEncoder(nn.Module):
 
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers)
 
+        print(feat_dim)
         self.output_layer = nn.Linear(d_model, feat_dim)
 
         self.act = _get_activation_fn(activation)

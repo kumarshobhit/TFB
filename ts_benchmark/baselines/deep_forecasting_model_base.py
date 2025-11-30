@@ -75,6 +75,7 @@ class DeepForecastingModelBase(ModelBase):
         self.scaler = StandardScaler()
         self.seq_len = self.config.seq_len
         self.win_size = self.config.seq_len
+        self.check_point = None
 
     def _init_model(self):
         """
@@ -229,6 +230,7 @@ class DeepForecastingModelBase(ModelBase):
             self.config.freq = freq[0].lower()
 
         column_num = train_data.shape[1]
+        # print(column_num)
         self.config.enc_in = column_num
         self.config.dec_in = column_num
         self.config.c_out = column_num
@@ -248,6 +250,7 @@ class DeepForecastingModelBase(ModelBase):
             self.config.freq = freq[0].lower()
 
         column_num = train_data.shape[1]
+        # print(column_num)
         self.config.enc_in = column_num
         self.config.dec_in = column_num
         self.config.c_out = column_num
