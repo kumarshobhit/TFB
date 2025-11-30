@@ -33,37 +33,6 @@ MODEL_HYPER_PARAMS = {
     "pred_len": 96,
 }
 
-class TSTForecastingModel(nn.Module):
-    """
-    Attributes:
-    A wrapper for TSTransformerEncoder that adds a forecasting head.
-    """
-    def __init__(self, config):
-        super().__init__()
-        self.config = config
-        self.encoder = TSTransformerEncoder(
-            feat_dim=config.enc_in,
-            max_len=config.seq_len,
-            d_model=config.d_model,
-            n_heads=config.n_heads,
-            num_layers=config.num_layers,
-            dim_feedforward=config.dim_feedforward,
-            dropout=config.dropout,
-            pos_encoding=config.pos_encoding,
-            activation=config.activation,
-            norm=config.norm,
-        )
-        self.head = nn.Linear(config.seq_len * config.enc_in, config.pred_len * config.c_out)
-
-    def forward(self, x):
-        # x: [batch, seq_len, features]
-        x = self.encoder(x)  # [batch, seq_len, features]
-        x = x.reshape(x.shape[0], -1)  # [batch, seq_len * features]
-        x = self.head(x)  # [batch, pred_len * features]
-        x = x.reshape(x.shape[0], self.config.pred_len, self.config.c_out)  # [batch, pred_len, features]
-        return x
-
-
 
 class TST(DeepForecastingModelBase):
     """
@@ -85,7 +54,18 @@ class TST(DeepForecastingModelBase):
         """
         Initializes the TST model with a forecasting head.
         """
-        return TSTForecastingModel(self.config)
+        return TSTransformerEncoder(
+            feat_dim=self.config.enc_in,
+            max_len=self.config.seq_len,
+            d_model=self.config.d_model,
+            n_heads=self.config.n_heads,
+            num_layers=self.config.num_layers,
+            dim_feedforward=self.config.dim_feedforward,
+            dropout=self.config.dropout,
+            pos_encoding=self.config.pos_encoding,
+            activation=self.config.activation,
+            norm=self.config.norm,
+        )
 
     def _process(self, input, target, input_mark, target_mark):
         """
