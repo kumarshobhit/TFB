@@ -12,11 +12,11 @@ class FixedPositionalEncoding(nn.Module):
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
+        pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + self.pe[:x.size(0), :]
+        x = x + self.pe[:x.size(1)]
         return self.dropout(x)
 
 class LearnedPositionalEncoding(nn.Module):
@@ -26,8 +26,8 @@ class LearnedPositionalEncoding(nn.Module):
         self.pe = nn.Parameter(torch.randn(max_len, d_model))
 
     def forward(self, x):
-        # x = x + self.pe[:x.size(0), :]
-        x = x + self.pe[:x.size(0), :].unsqueeze(1)
+
+        x = x + self.pe[:x.size(1), :]
         return self.dropout(x)
 
 class tAPE(nn.Module):
@@ -201,13 +201,12 @@ def get_relative_positions(
     return relative_positions    
     
 
-
 class SineSPE(nn.Module):
-    def __init__(self, in_features, max_len=512):
+    def __init__(self, in_features, dropout=0.1, max_len=512):
         super(SineSPE, self).__init__()
         self.in_features = in_features
         self.max_len = max_len
-        self.position = nn.Parameter(torch.zeros(1, max_len, in_features))
+        self.dropout = nn.Dropout(p=dropout)
         self.register_buffer('sine', self._generate_sine_encoding())
 
     def _generate_sine_encoding(self):
@@ -216,11 +215,11 @@ class SineSPE(nn.Module):
         encoding = torch.zeros(self.max_len, self.in_features)
         encoding[:, 0::2] = torch.sin(position * div_term)
         encoding[:, 1::2] = torch.cos(position * div_term)
-        return encoding
+        return encoding.unsqueeze(0)  # Shape: (1, max_len, in_features)
 
-    def forward(self, seq_len):
-        return self.sine[:seq_len, :].unsqueeze(0)  # Shape: (1, seq_len, in_features)
-
+    def forward(self, x):
+        x = x + self.sine[:, :x.size(1), :]
+        return self.dropout(x)
 
 class ConvSPE(nn.Module):
     def __init__(self, num_heads, in_features, kernel_size=3, num_realizations=1):

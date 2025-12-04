@@ -25,6 +25,9 @@ MODEL_HYPER_PARAMS = {
     "activation": "gelu",
     "norm": "BatchNorm",
 
+    # --- Head Type ---
+    "head_type": "projection",  # 'projection' or 'slicing'
+
     # --- Parameters for the framework ---
     # `seq_len` will be used as `max_len` for the model
     "seq_len": 96,
@@ -33,16 +36,44 @@ MODEL_HYPER_PARAMS = {
     "pred_len": 96,
 }
 
+class TSTForecastingModel(nn.Module):
+    """
+    Attributes:
+    A wrapper for TSTransformerEncoder that adds a forecasting head.
+    """
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.encoder = TSTransformerEncoder(
+            feat_dim=config.enc_in,
+            max_len=config.seq_len,
+            d_model=config.d_model,
+            n_heads=config.n_heads,
+            num_layers=config.num_layers,
+            dim_feedforward=config.dim_feedforward,
+            dropout=config.dropout,
+            pos_encoding=config.pos_encoding,
+            activation=config.activation,
+            norm=config.norm,
+        )
+        if config.head_type == 'projection':
+            self.head = nn.Linear(config.seq_len, config.pred_len)
+
+
+    def forward(self, x):
+        # x: [batch, seq_len, features]
+        x = self.encoder(x)
+        if self.config.head_type == 'projection':
+            # Project along the time dimension for each feature independently
+            x = x.permute(0, 2, 1)      # -> [batch, features, seq_len]
+            x = self.head(x)           # -> [batch, features, pred_len]
+            return x.permute(0, 2, 1)  # -> [batch, pred_len, features]
+        else:  # 'slicing' head
+            # Take the last `pred_len` time steps of the encoder's output as the forecast
+            return x[:, -self.config.pred_len:, :]
+
 
 class TST(DeepForecastingModelBase):
-    """
-    DUET Adapter Class
-
-    Attributes:
-        model_name (str): Model identifier name for distinguishing different models.
-        _init_model: Method to initialize an instance of DUETModel.
-        _process: Executes the model's forward pass and returns the output.
-    """
     def __init__(self, **kwargs):
         super(TST, self).__init__(MODEL_HYPER_PARAMS, **kwargs)
 
@@ -54,18 +85,7 @@ class TST(DeepForecastingModelBase):
         """
         Initializes the TST model with a forecasting head.
         """
-        return TSTransformerEncoder(
-            feat_dim=self.config.enc_in,
-            max_len=self.config.seq_len,
-            d_model=self.config.d_model,
-            n_heads=self.config.n_heads,
-            num_layers=self.config.num_layers,
-            dim_feedforward=self.config.dim_feedforward,
-            dropout=self.config.dropout,
-            pos_encoding=self.config.pos_encoding,
-            activation=self.config.activation,
-            norm=self.config.norm,
-        )
+        return TSTForecastingModel(self.config)
 
     def _process(self, input, target, input_mark, target_mark):
         """

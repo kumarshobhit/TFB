@@ -14,8 +14,8 @@
         "models": [
         ],
         "recommend_model_hyper_params": {
-            "input_chunk_length":17,
-            "output_chunk_length": 14,
+            "input_chunk_length":96,
+            "output_chunk_length": 96,
             "norm": false
 
         }
@@ -25,7 +25,7 @@
         "metrics": ["mae", "mse", "rmse", "mape", "smape", {"name": "mase", "seasonality": 7}, "wape", "msmape"],
         "strategy_args": {
             "strategy_name": "fixed_forecast",
-            "horizon": 14,
+            "horizon": 96,
             "train_ratio_in_tv": 1,
             "seed": 2021,
             "deterministic": "efficient",
