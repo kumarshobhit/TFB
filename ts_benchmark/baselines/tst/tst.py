@@ -42,15 +42,18 @@ class SimplifiedTST(nn.Module):
             batch_first=True
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_layers)
-        self.head = nn.Linear(config.d_model, config.c_out)
+        self.head = nn.Linear(config.seq_len, config.pred_len)
+        self.output_projection = nn.Linear(config.d_model, config.c_out)
 
     def forward(self, x):
         # x: [batch, seq_len, features]
         x = self.project_inp(x)  # Project features to d_model: [batch, seq_len, d_model]
         x = self.pos_enc(x)      # Add positional encoding
         x = self.transformer_encoder(x)  # Pass through the encoder: [batch, seq_len, d_model]
-        x = x[:, -self.config.pred_len:, :]  # Take last pred_len steps for forecasting
-        x = self.head(x) 
+        x = x.permute(0, 2, 1)    # [batch, d_model, seq_len]
+        x = self.head(x)          # [batch, d_model, pred_len]
+        x = x.permute(0, 2, 1)    # [batch, pred_len, d_model]
+        x = self.output_projection(x) # [batch, pred_len, c_out]
         return x
 
 
