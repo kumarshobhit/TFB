@@ -54,4 +54,4 @@ python ./scripts/run_benchmark.py \
     --gpus 0 \
     --num-workers 1 \
     --timeout 60000 \
-    --save-path "m4_daily_9/TST_96_5thDec" \
+    --save-path "m4_daily_9/TST_96_5thDec_hanneapproach2" \
