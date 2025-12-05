@@ -16,7 +16,7 @@ class FixedPositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + self.pe[:x.size(1)]
+        x = x + self.pe[:, :x.size(1)]
         return self.dropout(x)
 
 class LearnedPositionalEncoding(nn.Module):

@@ -49,9 +49,9 @@ python ./scripts/run_benchmark.py \
     --config-path "fixed_forecast_config_daily.json" \
     --data-name-list "m4_daily_dataset_9.csv" \
     --model-name "tst.TST" \
-    --model-hyper-params '{"norm":true,"d_model": 64, "n_heads": 4, "num_layers": 2, "dropout": 0.3, "dim_feedforward": 128, "weight_decay": 1e-4}' \
+    --model-hyper-params '{"norm":true,"d_model": 16, "dim_feedforward": 32, "num_layers": 2, "n_heads": 4, "lr": 0.001, "num_epochs": 50, "patience": 10, "loss": "MAE"}' \
     --adapter "None" \
     --gpus 0 \
     --num-workers 1 \
     --timeout 60000 \
-    --save-path "m4_daily_9/TST_Tiny_Temporal"
+    --save-path "m4_daily_9/TST_96_5thDec" \
