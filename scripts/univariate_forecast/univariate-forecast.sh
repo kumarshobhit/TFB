@@ -33,36 +33,25 @@
 # python ./scripts/run_benchmark.py --config-path "fixed_forecast_config_hourly.json" --model-name  "darts.LinearRegressionModel"  "darts.RandomForest" "darts.KalmanForecaster" "darts.XGBModel"   --save-path "hourly"   --gpus 0  --num-workers 1 --timeout 60000
 # python ./scripts/run_benchmark.py --config-path "fixed_forecast_config_other.json"  --model-name  "darts.LinearRegressionModel"  "darts.RandomForest" "darts.KalmanForecaster" "darts.XGBModel"    --save-path "other"   --gpus 0  --num-workers 1 --timeout 60000
 
-# python ./scripts/run_benchmark.py \
-#     --config-path "fixed_forecast_config_hourly.json" \
-#     --data-name-list "m4_hourly_dataset_69.csv" \
-#     --model-name "tst.TST" \
-#      --model-name "time_series_library.DLinear" "tst.TST" \
-#     --model-hyper-params '{"individual": false}' '{"d_model": 64, "dim_feedforward": 128, "num_layers": 3, "n_heads": 4, "lr": 0.0001, "num_epochs": 50, "patience": 10, "loss": "MAE"}' \
-#     --adapter "transformer_adapter" "None" \
-#     --gpus 0 \
-#     --num-workers 1 \
-#     --timeout 60000 \
-#     --save-path "m4_hourly_69/DLinear_vs_TST"
 
 # python ./scripts/run_benchmark.py \
 #     --config-path "fixed_forecast_config_daily.json" \
 #     --data-name-list "m4_daily_dataset_9.csv" \
-#     --model-name "time_series_library.DLinear" "tst.TST" \
-#     --model-hyper-params '{"individual": false}' '{"d_model": 16, "dim_feedforward": 32, "num_layers": 2, "n_heads": 4, "lr": 0.001, "num_epochs": 50, "patience": 10, "loss": "MAE"}' \
-#     --adapter "transformer_adapter" "None" \
+#     --model-name "time_series_library.PatchTST" \
+#     --model-hyper-params '{"norm":true,"individual": false}'  \
+#     --adapter "transformer_adapter"\
 #     --gpus 0 \
 #     --num-workers 1 \
 #     --timeout 60000 \
-#     --save-path "m4_daily_9/DLinear_vs_TST"
+#     --save-path "m4_daily_9/PatchTST"
 
 python ./scripts/run_benchmark.py \
     --config-path "fixed_forecast_config_daily.json" \
     --data-name-list "m4_daily_dataset_9.csv" \
     --model-name "tst.TST" \
-    --model-hyper-params '{"norm":true,"d_model": 16, "dim_feedforward": 32, "num_layers": 2, "n_heads": 4, "lr": 0.001, "num_epochs": 50, "patience": 10, "loss": "MAE"}' \
+    --model-hyper-params '{"norm":true,"d_model": 64, "n_heads": 4, "num_layers": 2, "dropout": 0.3, "dim_feedforward": 128, "weight_decay": 1e-4}' \
     --adapter "None" \
     --gpus 0 \
     --num-workers 1 \
     --timeout 60000 \
-    --save-path "m4_daily_9/TST_96_new"
+    --save-path "m4_daily_9/TST_Tiny_Temporal"
