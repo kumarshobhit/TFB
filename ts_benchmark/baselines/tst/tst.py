@@ -27,7 +27,17 @@ class SimplifiedTST(nn.Module):
         self.config = config
 
         self.project_inp = nn.Linear(config.enc_in, config.d_model)
-        self.pos_enc = get_pos_encoder(config.pos_encoding)(config.d_model, config.dropout, config.seq_len)
+
+        pos_encoder_class = get_pos_encoder(config.pos_encoding)
+        pos_encoder_args = {
+            "d_model": config.d_model,
+            "dropout": config.dropout,
+            "max_len": config.seq_len,
+        }
+        # If using SineSPE and a period is provided in the config, add it to the arguments.
+        if config.pos_encoding == 'sinespe' and hasattr(config, 'period') and config.period > 1:
+            pos_encoder_args['period'] = config.period
+        self.pos_enc = pos_encoder_class(**pos_encoder_args)
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=config.d_model,
             nhead=config.n_heads,
@@ -62,4 +72,3 @@ class TST(DeepForecastingModelBase):
     def _process(self, input, target, input_mark, target_mark):
         output = self.model(input)
         return {"output": output}
-

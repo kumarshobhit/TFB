@@ -7,4 +7,4 @@ result/
 venv/
 **/__pycache__/
 
-/results
+/results/

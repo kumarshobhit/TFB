@@ -202,20 +202,32 @@ def get_relative_positions(
     
 
 class SineSPE(nn.Module):
-    def __init__(self, in_features, dropout=0.1, max_len=512):
+    def __init__(self, d_model, dropout=0.1, max_len=512, period=None):
         super(SineSPE, self).__init__()
-        self.in_features = in_features
+        self.d_model = d_model
         self.max_len = max_len
         self.dropout = nn.Dropout(p=dropout)
+        self.period = period
         self.register_buffer('sine', self._generate_sine_encoding())
 
     def _generate_sine_encoding(self):
         position = torch.arange(self.max_len).unsqueeze(1).float()
-        div_term = torch.exp(torch.arange(0, self.in_features, 2).float() * -(math.log(10000.0) / self.in_features))
-        encoding = torch.zeros(self.max_len, self.in_features)
-        encoding[:, 0::2] = torch.sin(position * div_term)
-        encoding[:, 1::2] = torch.cos(position * div_term)
-        return encoding.unsqueeze(0)  # Shape: (1, max_len, in_features)
+        div_term = torch.exp(torch.arange(0, self.d_model, 2).float() * -(math.log(10000.0) / self.d_model))
+        encoding = torch.zeros(self.max_len, self.d_model)
+
+        # If a dominant period is provided, make the encoding periodic
+        if self.period is not None and self.period > 1:
+            # Use modulo to create a repeating pattern based on the dominant period.
+            # This makes the positional encoding for step `t` the same as for `t + period`.
+            periodic_position = position % self.period
+            encoding[:, 0::2] = torch.sin(periodic_position * div_term)
+            encoding[:, 1::2] = torch.cos(periodic_position * div_term)
+        else:
+            # Original absolute positional encoding
+            encoding[:, 0::2] = torch.sin(position * div_term)
+            encoding[:, 1::2] = torch.cos(position * div_term)
+
+        return encoding.unsqueeze(0)  # Shape: (1, max_len, d_model)
 
     def forward(self, x):
         x = x + self.sine[:, :x.size(1), :]
