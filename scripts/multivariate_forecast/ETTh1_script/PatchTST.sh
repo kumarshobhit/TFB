@@ -8,3 +8,4 @@ python ./scripts/run_benchmark.py --config-path "rolling_forecast_config.json" -
 
 # python ./scripts/run_benchmark.py --config-path "rolling_forecast_config.json" --data-name-list "ETTh1.csv" --strategy-args '{"horizon": 720}' --model-name "time_series_library.PatchTST" --model-hyper-params '{"batch_size": 64, "d_ff": 512, "d_model": 128, "horizon": 720, "lr": 0.0001, "norm": true, "seq_len": 512}' --adapter "transformer_adapter" --gpus 0 --num-workers 1 --timeout 60000 --save-path "ETTh1/PatchTST"
 
+    

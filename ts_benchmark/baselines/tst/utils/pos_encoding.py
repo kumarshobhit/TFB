@@ -294,5 +294,7 @@ def get_pos_encoder(pos_encoding):
         return AbsolutePositionalEncoding
     elif pos_encoding == 'sinespe':
         return SineSPE
+    elif pos_encoding == 'rotary':
+        return RotaryPositionalEncoding
     else:
         raise ValueError(f"Unknown positional encoding type: {pos_encoding}") 

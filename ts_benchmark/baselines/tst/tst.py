@@ -11,7 +11,7 @@ MODEL_HYPER_PARAMS = {
     "num_layers": 2,
     "dim_feedforward": 256,
     "dropout": 0.1,
-    "pos_encoding": "sinespe",  # 'fixed' or 'learned
+    "pos_encoding": "rotary",  # 'fixed' or 'learned
     # --- Parameters for the framework ---
     # `seq_len` will be used as `max_len` for the model
     "pred_len": 96,
