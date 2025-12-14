@@ -49,13 +49,13 @@ class tAPE(nn.Module):
     
 class RotaryPositionalEncoding(nn.Module):
     """Rotary Position Embedding (RoPE) - used in models like LLaMA"""
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
+    def __init__(self, d_model, dropout=0.1, max_len=5000, base_freq=10000.0):
         super(RotaryPositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
         self.d_model = d_model
 
         # Create frequency matrix
-        inv_freq = 1.0 / (10000 ** (torch.arange(0, d_model, 2).float() / d_model))
+        inv_freq = 1.0 / (base_freq ** (torch.arange(0, d_model, 2).float() / d_model))
         self.register_buffer('inv_freq', inv_freq)
 
     def forward(self, x):

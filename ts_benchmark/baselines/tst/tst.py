@@ -11,8 +11,9 @@ MODEL_HYPER_PARAMS = {
     "num_layers": 2,
     "dim_feedforward": 256,
     "dropout": 0.1,
-    "pos_encoding": "learned",  # 'fixed' or 'learned' or 'rotary' or 'sinespe'
+    "pos_encoding": "rotary",  # 'fixed' or 'learned' or 'rotary' or 'sinespe'
     "channel_independence": False,
+    "base_freq": 100.0,
     # --- Parameters for the framework ---
     # `seq_len` will be used as `max_len` for the model
     "pred_len": 96,
@@ -43,6 +44,9 @@ class SimplifiedTST(nn.Module):
         # If using SineSPE and a period is provided in the config, add it to the arguments.
         if config.pos_encoding == 'sinespe' and hasattr(config, 'period') and config.period > 1:
             pos_encoder_args['period'] = config.period
+        # If using Rotary and base_freq is provided in the config, add it to the arguments.
+        if config.pos_encoding == 'rotary' and hasattr(config, 'base_freq'):
+            pos_encoder_args['base_freq'] = config.base_freq
         self.pos_enc = pos_encoder_class(**pos_encoder_args)
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=config.d_model,
