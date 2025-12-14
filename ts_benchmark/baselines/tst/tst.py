@@ -11,7 +11,8 @@ MODEL_HYPER_PARAMS = {
     "num_layers": 2,
     "dim_feedforward": 256,
     "dropout": 0.1,
-    "pos_encoding": "rotary",  # 'fixed' or 'learned
+    "pos_encoding": "learned",  # 'fixed' or 'learned' or 'rotary' or 'sinespe'
+    "channel_independence": False,
     # --- Parameters for the framework ---
     # `seq_len` will be used as `max_len` for the model
     "pred_len": 96,
@@ -26,7 +27,12 @@ class SimplifiedTST(nn.Module):
         super().__init__()
         self.config = config
 
-        self.project_inp = nn.Linear(config.enc_in, config.d_model)
+        # Check for Channel Independence
+        self.channel_independence = getattr(config, 'channel_independence', False)
+        
+        # If CI is enabled, we project 1 feature -> d_model. Otherwise, we project enc_in -> d_model.
+        enc_in = 1 if self.channel_independence else config.enc_in
+        self.project_inp = nn.Linear(enc_in, config.d_model)
 
         pos_encoder_class = get_pos_encoder(config.pos_encoding)
         pos_encoder_args = {
@@ -47,15 +53,30 @@ class SimplifiedTST(nn.Module):
             batch_first=True
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_layers)
-        self.head = nn.Linear(config.d_model, config.c_out)
+        
+        # If CI is enabled, the head outputs 1 value (per channel). Otherwise, it outputs c_out.
+        head_out = 1 if self.channel_independence else config.c_out
+        self.head = nn.Linear(config.d_model, head_out)
 
     def forward(self, x):
         # x: [batch, seq_len, features]
+        
+        if self.channel_independence:
+            # Reshape to treat each channel as an independent sample
+            # [Batch, Seq, Vars] -> [Batch, Vars, Seq] -> [Batch * Vars, Seq, 1]
+            B, L, C = x.shape
+            x = x.permute(0, 2, 1).reshape(B * C, L, 1)
+            
         x = self.project_inp(x)  # Project features to d_model: [batch, seq_len, d_model]
         x = self.pos_enc(x)      # Add positional encoding
         x = self.transformer_encoder(x)  # Pass through the encoder: [batch, seq_len, d_model]
         x = x[:, -self.config.pred_len:, :]  # Take last pred_len steps for forecasting
         x = self.head(x) 
+        
+        if self.channel_independence:
+            # Reshape back to original format: [Batch * Vars, Pred, 1] -> [Batch, Pred, Vars]
+            x = x.reshape(B, C, -1).permute(0, 2, 1)
+            
         return x
 
 
