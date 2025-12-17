@@ -1,6 +1,7 @@
 import copy
 import math
 from typing import Optional, Tuple
+import os
 
 import numpy as np
 import pandas as pd
@@ -115,7 +116,9 @@ class DeepForecastingModelBase(ModelBase):
         - OrderedDict: A deep copy of the model's state_dict, which can be used to restore
           the model's parameters in the future.
         """
-        return copy.deepcopy(model.state_dict())
+        state_dict = copy.deepcopy(model.state_dict())
+        torch.save(state_dict, "best_model_checkpoint.pth")
+        return state_dict
 
     def _init_criterion_and_optimizer(self):
         """
@@ -383,6 +386,20 @@ class DeepForecastingModelBase(ModelBase):
             self.multi_forecasting_hyper_param_tune(train_valid_data)
 
         self.model = self._init_model()
+
+        # Check if a checkpoint exists to resume/skip training
+        if os.path.exists("best_model_checkpoint.pth"):
+            print("Found 'best_model_checkpoint.pth'. Loading checkpoint and skipping training...")
+            self.model.load_state_dict(torch.load("best_model_checkpoint.pth"))
+            self.check_point = self.model.state_dict()
+
+            # Fit scaler on training data since we are skipping the training loop
+            config = self.config
+            train_data, _ = train_val_split(
+                train_valid_data, train_ratio_in_tv, config.seq_len
+            )
+            self.scaler.fit(train_data.values)
+            return self.model
 
         device_ids = np.arange(torch.cuda.device_count()).tolist()
         if len(device_ids) > 1 and self.config.parallel_strategy == "DP":
