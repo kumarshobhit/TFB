@@ -12,7 +12,7 @@ MODEL_HYPER_PARAMS = {
     "num_layers": 2,
     "dim_feedforward": 256,
     "dropout": 0.1,
-    "pos_encoding": "fixed",  # 'fixed' or 'learned' or 'rotary' or 'sinespe'
+    # 'fixed' or 'learned' or 'rotary' or 'sinespe'
     "channel_independence": True,
     "revin": True,
     # --- Parameters for the framework ---
