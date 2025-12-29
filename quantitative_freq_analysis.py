@@ -52,6 +52,10 @@ def analyze_alignment(dataset_path, seq_len, d_model, period=None):
         return
 
     df = pd.read_csv(dataset_path)
+    # Check for TFB long format (date, data, cols) and pivot if necessary
+    if 'cols' in df.columns and 'data' in df.columns:
+        print("Detected long-format data. Pivoting to wide format...")
+        df = df.pivot(index='date', columns='cols', values='data').reset_index()
     # Filter numeric columns only
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     if 'date' in df.columns:
@@ -124,7 +128,7 @@ def analyze_alignment(dataset_path, seq_len, d_model, period=None):
     # --- Step D: Output ---
     results_df = pd.DataFrame(results)
     print("\n--- Alignment Scores (Higher is Better) ---")
-    print(results_df.sort_values(by='spearman_corr', ascending=False).to_string())
+    print(results_df.sort_values(by='cosine_sim', ascending=False).to_string())
     
     avg_corr = results_df['spearman_corr'].mean()
     print(f"\nAverage Spearman Correlation across all features: {avg_corr:.4f}")

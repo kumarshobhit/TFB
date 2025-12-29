@@ -29,13 +29,28 @@ def visualize_sample(directory: str):
     if num_vars == 1:
         axes = [axes]
 
+    metrics_list = []
+
     for i, col in enumerate(columns):
         ax = axes[i]
         ax.plot(df_actual[col], label="Actual", color="black", linewidth=1.5)
+        title_text = f"Variable: {col}"
+
         if col in df_pred.columns:
             ax.plot(df_pred[col], label="Predicted", color="red", linestyle="--", linewidth=1.5)
+            
+            # Compute metrics per feature
+            mse = ((df_actual[col] - df_pred[col]) ** 2).mean()
+            mae = (df_actual[col] - df_pred[col]).abs().mean()
+            
+            # Relative Error (WAPE) = sum(|A-P|) / sum(|A|)
+            sum_actual = df_actual[col].abs().sum()
+            rel_err = (df_actual[col] - df_pred[col]).abs().sum() / sum_actual if sum_actual != 0 else 0.0
+            
+            metrics_list.append({"Feature": col, "MSE": mse, "MAE": mae, "Relative_Error": rel_err})
+            title_text += f" | MSE: {mse:.4f} | MAE: {mae:.4f} | RelErr: {rel_err:.2%}"
         
-        ax.set_title(f"Variable: {col}")
+        ax.set_title(title_text)
         ax.legend()
         ax.grid(True, alpha=0.3)
         ax.set_ylabel("Value")
@@ -47,6 +62,14 @@ def visualize_sample(directory: str):
     output_file = os.path.join(directory, "actual_vs_pred.png")
     plt.savefig(output_file)
     print(f"Plot saved to: {output_file}")
+
+    # Save metrics to CSV
+    if metrics_list:
+        metrics_df = pd.DataFrame(metrics_list)
+        metrics_file = os.path.join(directory, "metrics_per_feature.csv")
+        metrics_df.to_csv(metrics_file, index=False)
+        print(f"Per-feature metrics saved to: {metrics_file}")
+        print(metrics_df)
 
 
 if __name__ == "__main__":
