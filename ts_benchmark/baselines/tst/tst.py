@@ -13,7 +13,7 @@ MODEL_HYPER_PARAMS = {
     "dim_feedforward": 256,
     "dropout": 0.1,
     # 'fixed' or 'learned' or 'rotary' or 'sinespe'
-    "channel_independence": True,
+    "channel_independence": False,
     "revin": True,
     # --- Parameters for the framework ---
     # `seq_len` will be used as `max_len` for the model

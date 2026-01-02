@@ -73,13 +73,29 @@ def plot_channel_analysis(time_series, freqs, power, top_results,
     plt.xlim(0, 4.0) # Zoom in to see Daily (1.0) and fractions. 
     plt.grid(True, alpha=0.3)
     
-    plt.savefig(Path(results_dir) / f'{dataset_name}_{col_name}_spectrum.png')
+    safe_col_name = col_name.replace('/', '_')
+    plt.savefig(Path(results_dir) / f'{dataset_name}_{safe_col_name}_spectrum.png')
     plt.close()
+
+def get_sampling_rate(dataset_name):
+    name = dataset_name.lower()
+    if 'ettm' in name:
+        return 96   # 15-minute intervals
+    elif 'etth' in name or 'electricity' in name or 'traffic' in name:
+        return 24   # Hourly
+    elif 'weather' in name:
+        return 144  # 10-minute intervals
+    elif 'ili' in name:
+        return 1/7  # Weekly
+    elif 'exchange' in name:
+        return 1    # Daily
+    return 24       # Default
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_name', type=str, default='ETTh1')
     parser.add_argument('--max_period', type=float, default=30.0) 
+    parser.add_argument('--limit_cols', type=int, default=5, help='Limit number of columns to analyze to avoid long runtimes on wide datasets')
     args = parser.parse_args()
 
     DATA_FILEPATH = f'dataset/forecasting/{args.dataset_name}.csv'
@@ -87,22 +103,35 @@ def main():
     
     print(f"--- Top-3 Periodicity Analysis (Max Period: {args.max_period}d) ---")
 
+    sample_rate = get_sampling_rate(args.dataset_name)
+    print(f"Detected Sampling Rate: {sample_rate} samples/day")
+
     try:
+        print(f"Loading data from {DATA_FILEPATH}...")
         df = pd.read_csv(DATA_FILEPATH)
+        print(f"Data loaded. Shape: {df.shape}")
+
         if 'cols' in df.columns and 'data' in df.columns:
+            print("Pivoting long-format data...")
             df = df.pivot(index='date', columns='cols', values='data').reset_index()
             if 'date' in df.columns: df = df.drop(columns=['date'])
 
         numeric_cols = df.select_dtypes(include=np.number).columns
+        
+        if args.limit_cols > 0 and len(numeric_cols) > args.limit_cols:
+            print(f"Dataset has {len(numeric_cols)} numeric columns. Limiting analysis to first {args.limit_cols}.")
+            numeric_cols = numeric_cols[:args.limit_cols]
+            
         os.makedirs(RESULTS_DIR, exist_ok=True) 
         
         summary_data = []
 
-        for col in numeric_cols:
+        for i, col in enumerate(numeric_cols):
+            print(f"Processing column {i+1}/{len(numeric_cols)}: {col}")
             ts = df[col].dropna().values.astype(float)
             
             # Find Top 3
-            top_3, freqs, power = find_top_frequencies(ts, 24, max_period_days=args.max_period, top_n=3)
+            top_3, freqs, power = find_top_frequencies(ts, sample_rate, max_period_days=args.max_period, top_n=3)
             
             # Prepare row for table
             row = {'Channel': col}

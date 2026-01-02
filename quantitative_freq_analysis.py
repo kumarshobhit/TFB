@@ -42,16 +42,21 @@ def compute_psd(data, fs=1.0):
     freqs, psd = signal.periodogram(data, fs=fs, detrend='linear')
     return freqs, psd
 
-def analyze_alignment(dataset_path, seq_len, d_model, period=None):
+def analyze_alignment(dataset_path, seq_len, d_model, period=None, limit_cols=None):
     print(f"\n=== Quantitative Frequency Analysis ===")
     print(f"Dataset: {dataset_path}")
     print(f"Settings: seq_len={seq_len}, d_model={d_model}, period={period if period else 'None (Absolute)'}")
     
+    if period is not None and seq_len < period:
+        print(f"Warning: seq_len ({seq_len}) < period ({period}). The modulo operation has no effect. Result will be identical to Absolute PE.")
+
     if not os.path.exists(dataset_path):
         print(f"Error: File not found at {dataset_path}")
         return
 
+    print(f"Loading dataset from {dataset_path}...")
     df = pd.read_csv(dataset_path)
+    print(f"Dataset loaded. Shape: {df.shape}")
     # Check for TFB long format (date, data, cols) and pivot if necessary
     if 'cols' in df.columns and 'data' in df.columns:
         print("Detected long-format data. Pivoting to wide format...")
@@ -60,6 +65,11 @@ def analyze_alignment(dataset_path, seq_len, d_model, period=None):
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     if 'date' in df.columns:
         numeric_cols = numeric_cols.drop('date', errors='ignore')
+    
+    if limit_cols is not None and limit_cols > 0:
+        if len(numeric_cols) > limit_cols:
+            print(f"Limiting analysis to first {limit_cols} columns (out of {len(numeric_cols)}).")
+            numeric_cols = numeric_cols[:limit_cols]
     
     # --- Step A: Generate PE Spectrum ---
     pe_layer = SineSPE(d_model, max_len=seq_len, period=period)
@@ -85,7 +95,8 @@ def analyze_alignment(dataset_path, seq_len, d_model, period=None):
     print(f"\nAnalyzing {len(numeric_cols)} features...")
     total_data_psd = np.zeros_like(pe_psd_norm)
 
-    for col in numeric_cols:
+    for i, col in enumerate(numeric_cols):
+        if (i+1) % 10 == 0: print(f"Processing feature {i+1}/{len(numeric_cols)}...")
         data = df[col].values
         
         # We analyze the average spectrum seen in sliding windows of size seq_len
@@ -153,7 +164,8 @@ if __name__ == "__main__":
     parser.add_argument('--seq_len', type=int, default=96)
     parser.add_argument('--d_model', type=int, default=512)
     parser.add_argument('--period', type=int, default=None, help='Period for SineSPE. Leave empty for Absolute.')
+    parser.add_argument('--limit_cols', type=int, default=10, help='Limit number of columns to analyze (default: 10). Set to 0 for all.')
     args = parser.parse_args()
     
     path = f'dataset/forecasting/{args.dataset}.csv'
-    analyze_alignment(path, args.seq_len, args.d_model, args.period)
+    analyze_alignment(path, args.seq_len, args.d_model, args.period, args.limit_cols)
