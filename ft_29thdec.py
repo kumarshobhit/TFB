@@ -103,6 +103,11 @@ def main():
     
     print(f"--- Top-3 Periodicity Analysis (Max Period: {args.max_period}d) ---")
 
+    # Auto-adjust max_period for ILI if it's still the default
+    if 'ili' in args.dataset_name.lower() and args.max_period == 30.0:
+        print("Notice: ILI dataset detected. Increasing max_period to 400 days to capture annual seasonality.")
+        args.max_period = 400.0
+
     sample_rate = get_sampling_rate(args.dataset_name)
     print(f"Detected Sampling Rate: {sample_rate} samples/day")
 
@@ -133,6 +138,10 @@ def main():
             # Find Top 3
             top_3, freqs, power = find_top_frequencies(ts, sample_rate, max_period_days=args.max_period, top_n=3)
             
+            if top_3:
+                dom_period_days = top_3[0][0]
+                print(f"   -> Dominant Period: {dom_period_days:.2f} days = {dom_period_days * sample_rate:.1f} steps")
+
             # Prepare row for table
             row = {'Channel': col}
             for i, (period, freq, pwr) in enumerate(top_3):

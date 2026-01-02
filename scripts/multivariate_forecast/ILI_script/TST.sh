@@ -1,0 +1,9 @@
+# python ./scripts/run_benchmark.py --config-path "rolling_forecast_config.json" --data-name-list "ILI.csv" --strategy-args '{"horizon": 24}' 
+# --model-name "duet.DUET" --model-hyper-params '{"CI": 1, "batch_size": 8, "d_ff": 512, "d_model": 256, "dropout": 0.1, "e_layers": 2, 
+# "factor": 3, "fc_dropout": 0, "horizon": 24, "k": 2, "loss": "MAE", "lr": 0.001, "lradj": "type1", "n_heads": 1, "norm": true, "num_epochs": 100, 
+# "num_experts": 2, "patch_len": 48, "patience": 5, "seq_len": 104}' --deterministic "full" --gpus 0 --num-workers 1 --timeout 60000 --save-path "ILI/DUET"
+
+python ./scripts/run_benchmark.py --config-path "rolling_forecast_config.json" --data-name-list "ILI.csv" --strategy-args '{"horizon": 24}' \
+--model-name "tst.TST" \
+--model-hyper-params '{"pos_encoding": "sinespe", "d_model": 256, "n_heads": 4, "num_layers": 2, "dim_feedforward": 512, "dropout": 0.1, "norm": true, "seq_len": 104, "horizon": 24, "batch_size": 16, "lr": 0.001, "num_epochs": 100, "patience": 10}' \
+--deterministic "full" --gpus 0 --num-workers 1 --timeout 60000 --save-path "ILI/TST_period52_seq104" \
