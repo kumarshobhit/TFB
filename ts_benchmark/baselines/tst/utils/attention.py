@@ -1,8 +1,28 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from einops import rearrange
 import pandas as pd
 import math
+from .pos_encoding import get_relative_positions
+
+class TUPEConfig:
+    num_layers: int = 6
+    num_heads: int = 8
+    d_model: int = 128
+    d_head: int = 0
+    max_len: int = 256
+    dropout: float = 0.1
+    expansion_factor: int = 1
+    relative_bias: bool = True
+    bidirectional_bias: bool = True
+    num_buckets: int = 32
+    max_distance: int = 128
+
+    def __post_init__(self):
+        d_head, remainder = divmod(self.d_model, self.num_heads)
+        assert remainder == 0, "`d_model` should be divisible by `num_heads`"
+        self.d_head = d_head
 
 class Attention(nn.Module):
     def __init__(self, emb_size, num_heads, dropout):
@@ -273,3 +293,76 @@ class TPS_SelfAttention(nn.Module):
         output = self.dropout(output)
 
         return output, weighted_attn
+
+class RoPEMultiHeadAttention(nn.Module):
+    def __init__(self, d_model, num_heads, dropout=0.1, base_freq=10000.0):
+        super().__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        
+        assert self.head_dim * num_heads == d_model, "d_model must be divisible by num_heads"
+
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout)
+        
+        # Precompute frequencies for RoPE: theta_i = base^(-2i/d)
+        theta = 1.0 / (base_freq ** (torch.arange(0, self.head_dim, 2).float() / self.head_dim))
+        self.register_buffer('theta', theta)
+
+    def apply_rope(self, x):
+        # x: [batch, seq_len, num_heads, head_dim]
+        b, seq_len, h, d = x.shape
+        
+        # Create position indices [0, 1, ..., seq_len-1]
+        pos = torch.arange(seq_len, device=x.device).float()
+        
+        # Outer product to get angles: pos_m * theta_i -> [seq_len, d/2]
+        angles = torch.einsum('m, i -> mi', pos, self.theta)
+        
+        # Reshape x to [b, seq_len, h, d/2, 2] to treat adjacent pairs (0,1), (2,3) etc.
+        x_pairs = x.view(b, seq_len, h, d // 2, 2)
+        
+        # Prepare sin/cos. Shape [1, seq_len, 1, d/2, 1] for broadcasting
+        sin = torch.sin(angles).view(1, seq_len, 1, d // 2, 1)
+        cos = torch.cos(angles).view(1, seq_len, 1, d // 2, 1)
+        
+        # Rotation: x' = x cos - y sin, y' = x sin + y cos
+        x_new = torch.zeros_like(x_pairs)
+        x_new[..., 0] = x_pairs[..., 0] * cos.squeeze(-1) - x_pairs[..., 1] * sin.squeeze(-1)
+        x_new[..., 1] = x_pairs[..., 0] * sin.squeeze(-1) + x_pairs[..., 1] * cos.squeeze(-1)
+        
+        return x_new.view(b, seq_len, h, d)
+
+    def forward(self, x, mask=None):
+        B, L, D = x.shape
+        
+        q = self.q_proj(x).view(B, L, self.num_heads, self.head_dim)
+        k = self.k_proj(x).view(B, L, self.num_heads, self.head_dim)
+        v = self.v_proj(x).view(B, L, self.num_heads, self.head_dim)
+        
+        # Apply RoPE to Queries and Keys
+        q = self.apply_rope(q)
+        k = self.apply_rope(k)
+        
+        # Transpose to [B, H, L, D_head] for attention
+        q = q.permute(0, 2, 1, 3)
+        k = k.permute(0, 2, 1, 3)
+        v = v.permute(0, 2, 1, 3)
+        
+        # Scaled Dot Product Attention
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, float('-inf'))
+            
+        attn = torch.softmax(scores, dim=-1)
+        attn = self.dropout(attn)
+        
+        out = torch.matmul(attn, v)
+        out = out.permute(0, 2, 1, 3).contiguous().view(B, L, D)
+        
+        return self.out_proj(out)

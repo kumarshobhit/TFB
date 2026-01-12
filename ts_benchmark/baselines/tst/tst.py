@@ -2,7 +2,8 @@ from ts_benchmark.baselines.deep_forecasting_model_base import DeepForecastingMo
 import torch
 import torch.nn as nn
 from ts_benchmark.baselines.tst.utils.pos_encoding import get_pos_encoder
-
+from ts_benchmark.baselines.tst.utils.attention import RoPEMultiHeadAttention
+import torch.nn.functional as F
 
 # Model hyperparameters
 MODEL_HYPER_PARAMS = {
@@ -76,6 +77,32 @@ class RevIN(nn.Module):
         x = x + self.mean
         return x
 
+class RoPEEncoderLayer(nn.Module):
+    """Transformer Encoder Layer using RoPE Attention."""
+    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation="gelu", base_freq=10000.0):
+        super().__init__()
+        self.self_attn = RoPEMultiHeadAttention(d_model, nhead, dropout, base_freq)
+        
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.activation = F.gelu if activation == "gelu" else F.relu
+
+    def forward(self, src):
+        src2 = self.self_attn(src)
+        src = src + self.dropout1(src2)
+        src = self.norm1(src)
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        src = src + self.dropout2(src2)
+        src = self.norm2(src)
+        return src
+
 class SimplifiedTST(nn.Module):
     """
     A simplified, self-contained, and robust Transformer model for forecasting.
@@ -97,36 +124,47 @@ class SimplifiedTST(nn.Module):
         enc_in = 1 if self.channel_independence else config.enc_in
         self.project_inp = nn.Linear(enc_in, config.d_model)
 
-        pos_encoder_class = get_pos_encoder(config.pos_encoding)
+        # --- Positional Encoding & Encoder Setup ---
         if config.pos_encoding == 'convspe':
+            pos_encoder_class = get_pos_encoder(config.pos_encoding)
             pos_encoder_args = {
                 "num_heads": config.n_heads,
                 "in_features": config.d_model,
             }
             if hasattr(config, 'kernel_size'):
                 pos_encoder_args['kernel_size'] = config.kernel_size
+            self.pos_enc = pos_encoder_class(**pos_encoder_args)
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=config.d_model, nhead=config.n_heads, dim_feedforward=config.dim_feedforward,
+                dropout=config.dropout, activation='gelu', batch_first=True
+            )
+            self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_layers)
+
+        elif config.pos_encoding == 'rotary':
+            # RoPE is applied inside the attention layer, so no input PE is needed.
+            self.pos_enc = nn.Identity()
+            base_freq = getattr(config, 'base_freq', 10000.0)
+            
+            # Use custom RoPE Encoder Layers
+            layers = [RoPEEncoderLayer(config.d_model, config.n_heads, config.dim_feedforward, 
+                                       config.dropout, 'gelu', base_freq) 
+                      for _ in range(config.num_layers)]
+            self.transformer_encoder = nn.Sequential(*layers)
+
         else:
+            pos_encoder_class = get_pos_encoder(config.pos_encoding)
             pos_encoder_args = {
-                "d_model": config.d_model,
-                "dropout": config.dropout,
-                "max_len": config.seq_len,
+                "d_model": config.d_model, "dropout": config.dropout, "max_len": config.seq_len,
             }
-        # If using SineSPE and a period is provided in the config, add it to the arguments.
-        if config.pos_encoding == 'sinespe' and hasattr(config, 'period') and config.period > 1:
-            pos_encoder_args['period'] = config.period
-        # If using Rotary and base_freq is provided in the config, add it to the arguments.
-        if config.pos_encoding == 'rotary' and hasattr(config, 'base_freq'):
-            pos_encoder_args['base_freq'] = config.base_freq
-        self.pos_enc = pos_encoder_class(**pos_encoder_args)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=config.d_model,
-            nhead=config.n_heads,
-            dim_feedforward=config.dim_feedforward,
-            dropout=config.dropout,
-            activation='gelu',
-            batch_first=True
-        )
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_layers)
+            if config.pos_encoding == 'sinespe' and hasattr(config, 'period') and config.period > 1:
+                pos_encoder_args['period'] = config.period
+            
+            self.pos_enc = pos_encoder_class(**pos_encoder_args)
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=config.d_model, nhead=config.n_heads, dim_feedforward=config.dim_feedforward,
+                dropout=config.dropout, activation='gelu', batch_first=True
+            )
+            self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_layers)
         
         # If CI is enabled, the head outputs 1 value (per channel). Otherwise, it outputs c_out.
         head_out = 1 if self.channel_independence else config.c_out

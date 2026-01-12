@@ -1,8 +1,8 @@
 python quantitative_freq_analysis.py \
   --dataset ETTh1 \
-  --seq_len 96 \
-  --d_model 512 \
-  --period 24 \
+  --pe_type rope \
+  --base_freq 500 \
+  --n_heads 8 \
   --metrics_file per_feature_metrics.json \
   --baseline_metrics_file per_feature_metrics_default.json \
 

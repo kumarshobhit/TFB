@@ -36,6 +36,30 @@ class SineSPE(nn.Module):
         
         return encoding.unsqueeze(0) # [1, max_len, d_model]
 
+class RoPEGenerator(nn.Module):
+    def __init__(self, d_model, max_len=5000, base_freq=10000.0, n_heads=8):
+        super().__init__()
+        self.d_model = d_model
+        self.max_len = max_len
+        self.base_freq = base_freq
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+        
+    def generate(self):
+        # theta_i = base^(-2i/d_head)
+        theta = 1.0 / (self.base_freq ** (torch.arange(0, self.head_dim, 2).float() / self.head_dim))
+        seq_idx = torch.arange(self.max_len).float()
+        # Outer product to get angles
+        idx_theta = torch.einsum('n,d->nd', seq_idx, theta)
+        # RoPE uses both cos and sin
+        cos_waves = torch.cos(idx_theta)
+        sin_waves = torch.sin(idx_theta)
+        # Concatenate to form the "features" of the PE
+        head_waves = torch.cat([cos_waves, sin_waves], dim=1) 
+        # Repeat for all heads to match d_model size
+        full_waves = head_waves.repeat(1, self.n_heads)
+        return full_waves.unsqueeze(0)
+
 # --- 2. Helper Functions ---
 def compute_psd(data, fs=1.0):
     """Compute Power Spectral Density using Periodogram."""
@@ -43,10 +67,14 @@ def compute_psd(data, fs=1.0):
     freqs, psd = signal.periodogram(data, fs=fs, detrend='linear')
     return freqs, psd
 
-def get_pe_spectrum_norm(d_model, seq_len, period):
-    """Helper to generate normalized PE spectrum for a given period."""
-    pe_layer = SineSPE(d_model, max_len=seq_len, period=period)
-    pe_matrix = pe_layer.sine.squeeze(0).numpy() # [seq_len, d_model]
+def get_pe_spectrum_norm(d_model, seq_len, period=None, pe_type='sinespe', base_freq=10000.0, n_heads=8):
+    """Helper to generate normalized PE spectrum."""
+    if pe_type == 'rope':
+        gen = RoPEGenerator(d_model, max_len=seq_len, base_freq=base_freq, n_heads=n_heads)
+        pe_matrix = gen.generate().squeeze(0).numpy()
+    else:
+        pe_layer = SineSPE(d_model, max_len=seq_len, period=period)
+        pe_matrix = pe_layer.sine.squeeze(0).numpy() # [seq_len, d_model]
     
     pe_psd_sum = None
     freqs = None
@@ -61,12 +89,16 @@ def get_pe_spectrum_norm(d_model, seq_len, period):
     # Normalize PE Spectrum
     return pe_psd_sum / (np.sum(pe_psd_sum) + 1e-9), freqs
 
-def analyze_alignment(dataset_path, seq_len, d_model, period=None, limit_cols=None, metrics_file=None, baseline_metrics_file=None):
+def analyze_alignment(dataset_path, seq_len, d_model, period=None, limit_cols=None, metrics_file=None, baseline_metrics_file=None, pe_type='sinespe', base_freq=10000.0, n_heads=8):
     print(f"\n=== Quantitative Frequency Analysis ===")
     print(f"Dataset: {dataset_path}")
-    print(f"Settings: seq_len={seq_len}, d_model={d_model}, period={period if period else 'None (Absolute)'}")
+    print(f"Settings: seq_len={seq_len}, d_model={d_model}, pe_type={pe_type}")
+    if pe_type == 'sinespe':
+        print(f"Period: {period if period else 'None (Absolute)'}")
+    elif pe_type == 'rope':
+        print(f"Base Freq: {base_freq}, n_heads: {n_heads}")
     
-    if period is not None and seq_len < period:
+    if pe_type == 'sinespe' and period is not None and seq_len < period:
         print(f"Warning: seq_len ({seq_len}) < period ({period}). The modulo operation has no effect. Result will be identical to Absolute PE.")
     
     if metrics_file: print(f"Loading metrics from: {metrics_file}")
@@ -94,11 +126,15 @@ def analyze_alignment(dataset_path, seq_len, d_model, period=None, limit_cols=No
     
     # --- Step A: Generate PE Spectrum ---
     # 1. Current/Aligned PE
-    pe_psd_norm, freqs = get_pe_spectrum_norm(d_model, seq_len, period)
+    pe_psd_norm, freqs = get_pe_spectrum_norm(d_model, seq_len, period, pe_type, base_freq, n_heads)
 
     # 2. Default/Absolute PE (for comparison)
-    if period is not None:
-        pe_psd_norm_def, _ = get_pe_spectrum_norm(d_model, seq_len, None)
+    pe_psd_norm_def = None
+    if pe_type == 'sinespe' and period is not None:
+        pe_psd_norm_def, _ = get_pe_spectrum_norm(d_model, seq_len, None, 'sinespe')
+    elif pe_type == 'rope':
+        # Compare against default base_freq 10000.0
+        pe_psd_norm_def, _ = get_pe_spectrum_norm(d_model, seq_len, None, 'rope', 10000.0, n_heads)
 
     # --- Step B: Analyze Data Spectrum ---
     results = []
@@ -144,7 +180,7 @@ def analyze_alignment(dataset_path, seq_len, d_model, period=None, limit_cols=No
         }
 
         # 2. Cosine Similarity (Default Config) - if comparing
-        if period is not None:
+        if pe_psd_norm_def is not None:
             cos_sim_def = 1 - cosine(col_psd_norm, pe_psd_norm_def)
             entry['cosine_sim_default'] = cos_sim_def
             entry['delta_cosine'] = cos_sim - cos_sim_def # Positive = Aligned is better match
@@ -170,7 +206,7 @@ def analyze_alignment(dataset_path, seq_len, d_model, period=None, limit_cols=No
                 results_df['MSE_Aligned'] = curr_mse
                 results_df['MAE_Aligned'] = curr_mae
 
-            if baseline_metrics_file and period is not None:
+            if baseline_metrics_file and pe_psd_norm_def is not None:
                 # Load Baseline Metrics
                 with open(baseline_metrics_file, 'r') as f:
                     b_data = json.load(f)
@@ -279,10 +315,13 @@ if __name__ == "__main__":
     parser.add_argument('--seq_len', type=int, default=96)
     parser.add_argument('--d_model', type=int, default=512)
     parser.add_argument('--period', type=int, default=None, help='Period for SineSPE. Leave empty for Absolute.')
+    parser.add_argument('--pe_type', type=str, default='sinespe', choices=['sinespe', 'rope'], help='Type of PE to analyze')
+    parser.add_argument('--base_freq', type=float, default=10000.0, help='Base frequency for RoPE')
+    parser.add_argument('--n_heads', type=int, default=8, help='Number of heads for RoPE')
     parser.add_argument('--limit_cols', type=int, default=10, help='Limit number of columns to analyze (default: 10). Set to 0 for all.')
     parser.add_argument('--metrics_file', type=str, default=None, help='Path to JSON file with model errors (from extract_results.py)')
     parser.add_argument('--baseline_metrics_file', type=str, default=None, help='Path to JSON file with baseline model errors')
     args = parser.parse_args()
     
     path = f'dataset/forecasting/{args.dataset}.csv'
-    analyze_alignment(path, args.seq_len, args.d_model, args.period, args.limit_cols, args.metrics_file, args.baseline_metrics_file)
+    analyze_alignment(path, args.seq_len, args.d_model, args.period, args.limit_cols, args.metrics_file, args.baseline_metrics_file, args.pe_type, args.base_freq, args.n_heads)
