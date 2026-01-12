@@ -13,7 +13,7 @@ MODEL_HYPER_PARAMS = {
     "dim_feedforward": 256,
     "dropout": 0.1,
     # 'fixed' or 'learned' or 'rotary' or 'sinespe'
-    "channel_independence": False,
+    "channel_independence": True,
     "revin": True,
     # --- Parameters for the framework ---
     # `seq_len` will be used as `max_len` for the model
@@ -98,11 +98,19 @@ class SimplifiedTST(nn.Module):
         self.project_inp = nn.Linear(enc_in, config.d_model)
 
         pos_encoder_class = get_pos_encoder(config.pos_encoding)
-        pos_encoder_args = {
-            "d_model": config.d_model,
-            "dropout": config.dropout,
-            "max_len": config.seq_len,
-        }
+        if config.pos_encoding == 'convspe':
+            pos_encoder_args = {
+                "num_heads": config.n_heads,
+                "in_features": config.d_model,
+            }
+            if hasattr(config, 'kernel_size'):
+                pos_encoder_args['kernel_size'] = config.kernel_size
+        else:
+            pos_encoder_args = {
+                "d_model": config.d_model,
+                "dropout": config.dropout,
+                "max_len": config.seq_len,
+            }
         # If using SineSPE and a period is provided in the config, add it to the arguments.
         if config.pos_encoding == 'sinespe' and hasattr(config, 'period') and config.period > 1:
             pos_encoder_args['period'] = config.period
