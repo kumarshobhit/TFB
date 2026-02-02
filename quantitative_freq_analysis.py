@@ -11,6 +11,8 @@ from scipy import signal
 from scipy.stats import spearmanr, linregress
 from scipy.spatial.distance import cosine
 
+ETTH1_FEATURES = ['HUFL', 'HULL', 'MUFL', 'MULL', 'LUFL', 'LULL', 'OT']
+
 # --- 1. Define SineSPE (Self-contained for analysis) ---
 class SineSPE(nn.Module):
     def __init__(self, d_model, max_len=5000, period=None):
@@ -79,7 +81,7 @@ def get_pe_spectrum_norm(d_model, seq_len, period=None, pe_type='sinespe', base_
     pe_psd_sum = None
     freqs = None
     
-    for i in range(d_model):
+    for i in range(pe_matrix.shape[1]):
         f, p = compute_psd(pe_matrix[:, i])
         if pe_psd_sum is None:
             pe_psd_sum = np.zeros_like(p)
@@ -89,20 +91,20 @@ def get_pe_spectrum_norm(d_model, seq_len, period=None, pe_type='sinespe', base_
     # Normalize PE Spectrum
     return pe_psd_sum / (np.sum(pe_psd_sum) + 1e-9), freqs
 
-def analyze_alignment(dataset_path, seq_len, d_model, period=None, limit_cols=None, metrics_file=None, baseline_metrics_file=None, pe_type='sinespe', base_freq=10000.0, n_heads=8):
+def analyze_alignment(dataset_path, seq_len, d_model, period=None, limit_cols=None, pe_type='sinespe', base_freq=10000.0, n_heads=8, feature_names=None):
     print(f"\n=== Quantitative Frequency Analysis ===")
     print(f"Dataset: {dataset_path}")
     print(f"Settings: seq_len={seq_len}, d_model={d_model}, pe_type={pe_type}")
     if pe_type == 'sinespe':
         print(f"Period: {period if period else 'None (Absolute)'}")
+        print(f"   -> Effective Frequency Dim: {d_model}")
     elif pe_type == 'rope':
         print(f"Base Freq: {base_freq}, n_heads: {n_heads}")
+        print(f"   -> Effective Frequency Dim (head_dim): {d_model // n_heads} (Repeated {n_heads} times)")
     
     if pe_type == 'sinespe' and period is not None and seq_len < period:
         print(f"Warning: seq_len ({seq_len}) < period ({period}). The modulo operation has no effect. Result will be identical to Absolute PE.")
     
-    if metrics_file: print(f"Loading metrics from: {metrics_file}")
-
     if not os.path.exists(dataset_path):
         print(f"Error: File not found at {dataset_path}")
         return
@@ -119,6 +121,16 @@ def analyze_alignment(dataset_path, seq_len, d_model, period=None, limit_cols=No
     if 'date' in df.columns:
         numeric_cols = numeric_cols.drop('date', errors='ignore')
     
+    if feature_names is not None:
+        # If columns are just indices (0, 1, 2...), map them to feature names
+        is_indices = all(str(c).isdigit() for c in numeric_cols)
+        if is_indices and len(numeric_cols) == len(feature_names):
+            print(f"Mapping numeric columns to provided feature names: {feature_names}")
+            mapping = {c: name for c, name in zip(numeric_cols, feature_names)}
+            df.rename(columns=mapping, inplace=True)
+            # Re-select numeric columns to get the new names in order
+            numeric_cols = pd.Index(feature_names)
+
     if limit_cols is not None and limit_cols > 0:
         if len(numeric_cols) > limit_cols:
             print(f"Limiting analysis to first {limit_cols} columns (out of {len(numeric_cols)}).")
@@ -189,112 +201,20 @@ def analyze_alignment(dataset_path, seq_len, d_model, period=None, limit_cols=No
 
     results_df = pd.DataFrame(results)
 
-    # --- Step D: Integrate Metrics (Before Printing) ---
-    if metrics_file:
-        try:
-            # Load Current Metrics
-            with open(metrics_file, 'r') as f:
-                m_data = json.load(f)
-                curr_mse = np.array(m_data[0]['metrics']['MSE'])
-                curr_mae = np.array(m_data[0]['metrics']['MAE'])
-            
-            if limit_cols and len(curr_mse) > limit_cols:
-                curr_mse = curr_mse[:limit_cols]
-                curr_mae = curr_mae[:limit_cols]
-            
-            if len(curr_mse) == len(results_df):
-                results_df['MSE_Aligned'] = curr_mse
-                results_df['MAE_Aligned'] = curr_mae
-
-            if baseline_metrics_file and pe_psd_norm_def is not None:
-                # Load Baseline Metrics
-                with open(baseline_metrics_file, 'r') as f:
-                    b_data = json.load(f)
-                    base_mse = np.array(b_data[0]['metrics']['MSE'])
-                    base_mae = np.array(b_data[0]['metrics']['MAE'])
-                
-                if limit_cols and len(base_mse) > limit_cols:
-                    base_mse = base_mse[:limit_cols]
-                    base_mae = base_mae[:limit_cols]
-
-                if len(base_mse) == len(results_df):
-                    results_df['MSE_Default'] = base_mse
-                    results_df['MAE_Default'] = base_mae
-                    # Delta Error: Positive = Improvement (Error Reduced)
-                    results_df['delta_mse'] = results_df['MSE_Default'] - results_df['MSE_Aligned']
-                    results_df['delta_mae'] = results_df['MAE_Default'] - results_df['MAE_Aligned']
-        except Exception as e:
-            print(f"Error loading metrics: {e}")
-
     # --- Step E: Output Table ---
-    print("\n--- Alignment & Error Analysis ---")
+    print("\n--- Alignment Analysis ---")
     cols_to_show = ['feature', 'cosine_sim']
     if 'cosine_sim_default' in results_df.columns:
         cols_to_show.extend(['cosine_sim_default', 'delta_cosine'])
-    if 'MSE_Aligned' in results_df.columns:
-        cols_to_show.append('MSE_Aligned')
-    if 'MSE_Default' in results_df.columns:
-        cols_to_show.extend(['MSE_Default', 'delta_mse'])
-    if 'MAE_Aligned' in results_df.columns:
-        cols_to_show.append('MAE_Aligned')
-    if 'MAE_Default' in results_df.columns:
-        cols_to_show.extend(['MAE_Default', 'delta_mae'])
     
     # Filter to ensure columns exist
     cols_to_show = [c for c in cols_to_show if c in results_df.columns]
-    print(results_df[cols_to_show].sort_values(by='cosine_sim', ascending=False).to_string())
-
-    # --- Step F: Correlation with Error (The New Request) ---
-    if 'delta_cosine' in results_df.columns and 'delta_mse' in results_df.columns:
-        dc = results_df['delta_cosine'].values
-        
-        # --- MSE Analysis ---
-        d_mse = results_df['delta_mse'].values
-        print(f"\n>>> Correlation Analysis (Change in Alignment vs Change in MSE) <<<")
-        corr, p_val = spearmanr(dc, d_mse)
-        print(f"Spearman Correlation: {corr:.4f} (p-value: {p_val:.4f})")
-        
-        slope, intercept, r_value, p_value, std_err = linregress(dc, d_mse)
-        print(f"\nLinear Quantification (Slope): {slope:.4f}")
-        print(f"  -> Interpretation: On average, increasing Cosine Similarity by 0.1 results in an MSE reduction of {slope*0.1:.5f}.")
-
-        # --- Scatter Plot: Delta Cosine vs Delta MSE ---
-        plt.figure(figsize=(8, 6))
-        plt.scatter(dc, d_mse, alpha=0.7, label='Features')
-        
-        # Regression Line
-        x_vals = np.array([np.min(dc), np.max(dc)])
-        y_vals = intercept + slope * x_vals
-        plt.plot(x_vals, y_vals, color='red', linestyle='--', label=f'Fit: slope={slope:.2f}')
-        
-        plt.title(f"Impact of Alignment on Error (MSE)\n(Corr: {corr:.2f}, Slope: {slope:.2f})")
-        plt.xlabel("Change in Cosine Similarity (Aligned - Default)")
-        plt.ylabel("Change in MSE (Default - Aligned)")
-        plt.axhline(0, color='gray', linewidth=0.5)
-        plt.axvline(0, color='gray', linewidth=0.5)
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig("delta_cosine_vs_delta_mse.png")
-        print(f"Saved scatter plot to: {os.path.abspath('delta_cosine_vs_delta_mse.png')}")
-
-        # --- MAE Analysis ---
-        if 'delta_mae' in results_df.columns:
-            d_mae = results_df['delta_mae'].values
-            print(f"\n>>> Correlation Analysis (Change in Alignment vs Change in MAE) <<<")
-            corr, p_val = spearmanr(dc, d_mae)
-            print(f"Spearman Correlation: {corr:.4f} (p-value: {p_val:.4f})")
-            
-            slope, intercept, r_value, p_value, std_err = linregress(dc, d_mae)
-            print(f"\nLinear Quantification (Slope): {slope:.4f}")
-            print(f"  -> Interpretation: On average, increasing Cosine Similarity by 0.1 results in an MAE reduction of {slope*0.1:.5f}.")
-        
-    elif 'cosine_sim' in results_df.columns and 'MSE_Aligned' in results_df.columns:
-        # Absolute Correlation
-        corr, p_val = spearmanr(results_df['cosine_sim'].values, results_df['MSE_Aligned'].values)
-        print(f"\n>>> Correlation Analysis (Alignment vs Error) <<<")
-        print(f"Spearman Correlation: {corr:.4f} (p-value: {p_val:.4f})")
-        print("  -> Interpretation: Negative correlation implies Higher Alignment -> Lower Error.")
+    
+    if feature_names is not None:
+        results_df['feature'] = pd.Categorical(results_df['feature'], categories=feature_names, ordered=True)
+        print(results_df[cols_to_show].sort_values('feature').to_string())
+    else:
+        print(results_df[cols_to_show].sort_values(by='cosine_sim', ascending=False).to_string())
 
     # --- Step G: Visualization ---
     avg_data_psd = total_data_psd / len(numeric_cols)
@@ -319,9 +239,11 @@ if __name__ == "__main__":
     parser.add_argument('--base_freq', type=float, default=10000.0, help='Base frequency for RoPE')
     parser.add_argument('--n_heads', type=int, default=8, help='Number of heads for RoPE')
     parser.add_argument('--limit_cols', type=int, default=10, help='Limit number of columns to analyze (default: 10). Set to 0 for all.')
-    parser.add_argument('--metrics_file', type=str, default=None, help='Path to JSON file with model errors (from extract_results.py)')
-    parser.add_argument('--baseline_metrics_file', type=str, default=None, help='Path to JSON file with baseline model errors')
     args = parser.parse_args()
+
+    feature_names = None
+    if 'ETTh1' in args.dataset:
+        feature_names = ETTH1_FEATURES
     
     path = f'dataset/forecasting/{args.dataset}.csv'
-    analyze_alignment(path, args.seq_len, args.d_model, args.period, args.limit_cols, args.metrics_file, args.baseline_metrics_file, args.pe_type, args.base_freq, args.n_heads)
+    analyze_alignment(path, args.seq_len, args.d_model, args.period, args.limit_cols, args.pe_type, args.base_freq, args.n_heads, feature_names)

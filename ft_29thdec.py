@@ -123,9 +123,8 @@ def main():
 
         numeric_cols = df.select_dtypes(include=np.number).columns
         
-        if args.limit_cols > 0 and len(numeric_cols) > args.limit_cols:
-            print(f"Dataset has {len(numeric_cols)} numeric columns. Limiting analysis to first {args.limit_cols}.")
-            numeric_cols = numeric_cols[:args.limit_cols]
+       
+        print(f"Dataset has {len(numeric_cols)}")
             
         os.makedirs(RESULTS_DIR, exist_ok=True) 
         

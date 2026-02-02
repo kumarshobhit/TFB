@@ -886,7 +886,7 @@ def dropandrename_dataframe(result_df: pd.DataFrame) -> pd.DataFrame:
 
 if __name__ == "__main__":
     processor = TimeSeriesProcessor(output_dir="characteristics")
-    file_path = r"./DemoDatasets/Exchange.csv"  # supports input a single file
+    file_path = r"dataset/forecasting/Weather.csv"  # supports input a single file
     # file_path = r"./DemoDatasets" # supports input a folder
     processor.process_path(file_path)
     print("Processing completed")

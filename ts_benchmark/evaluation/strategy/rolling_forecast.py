@@ -319,29 +319,7 @@ class RollingForecast(ForecastingStrategy):
             all_rolling_predict.append(inference_data)
             all_test_results.append(single_series_result)
 
-        average_inference_time = float(total_inference_time) / min(
-            len(index_list), num_rollings
-        )
         single_series_results = np.mean(np.stack(all_test_results), axis=0).tolist()
-
-        # --- Calculate Per-Feature Metrics ---
-        try:
-            def to_arr(x):
-                return x.values if hasattr(x, 'values') else np.array(x)
-            
-            true_vals = np.concatenate([to_arr(x) for x in all_rolling_actual], axis=0)
-            pred_vals = np.concatenate([to_arr(x) for x in all_rolling_predict], axis=0)
-            
-            if true_vals.ndim == 1:
-                true_vals = true_vals[:, np.newaxis]
-                pred_vals = pred_vals[:, np.newaxis]
-                
-            mse_feat = np.mean((true_vals - pred_vals) ** 2, axis=0)
-            mae_feat = np.mean(np.abs(true_vals - pred_vals), axis=0)
-            log_info = f"Per-Feature MSE: {mse_feat.tolist()}; Per-Feature MAE: {mae_feat.tolist()}"
-        except Exception as e:
-            log_info = f"Error calculating per-feature metrics: {e}"
-        # -------------------------------------
 
         save_true_pred = self._get_scalar_config_value("save_true_pred", series_name)
         actual_data_encoded = (
@@ -354,10 +332,10 @@ class RollingForecast(ForecastingStrategy):
         single_series_results += [
             series_name,
             end_fit_time - start_fit_time,
-            average_inference_time,
+            total_inference_time,
             actual_data_encoded,
             inference_data_encoded,
-            log_info,
+            "",
         ]
         return single_series_results
 
@@ -444,26 +422,6 @@ class RollingForecast(ForecastingStrategy):
             all_test_results.append(single_series_results)
         single_series_results = np.mean(np.stack(all_test_results), axis=0).tolist()
 
-        average_inference_time = float(total_inference_time) / min(
-            len(index_list), num_rollings
-        )
-
-        # --- Calculate Per-Feature Metrics ---
-        try:
-            if targets.ndim == 2:
-                t_flat = targets.flatten()[:, np.newaxis]
-                p_flat = all_predicts.flatten()[:, np.newaxis]
-            else:
-                t_flat = targets.reshape(-1, targets.shape[-1])
-                p_flat = all_predicts.reshape(-1, all_predicts.shape[-1])
-                
-            mse_feat = np.mean((t_flat - p_flat) ** 2, axis=0)
-            mae_feat = np.mean(np.abs(t_flat - p_flat), axis=0)
-            log_info = f"Per-Feature MSE: {mse_feat.tolist()}; Per-Feature MAE: {mae_feat.tolist()}"
-        except Exception as e:
-            log_info = f"Error calculating per-feature metrics: {e}"
-        # -------------------------------------
-
         save_true_pred = self._get_scalar_config_value("save_true_pred", series_name)
         actual_data_encoded = self._encode_data(targets) if save_true_pred else np.nan
         inference_data_encoded = (
@@ -473,10 +431,10 @@ class RollingForecast(ForecastingStrategy):
         single_series_results += [
             series_name,
             end_fit_time - start_fit_time,
-            average_inference_time,
+            total_inference_time,
             actual_data_encoded,
             inference_data_encoded,
-            log_info,
+            "",
         ]
         return single_series_results
 
