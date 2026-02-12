@@ -1,5 +1,6 @@
 import base64
 import os
+import argparse
 import pickle
 import time
 
@@ -56,6 +57,7 @@ def calculate_per_feature_metrics(save_dir: str):
     total_abs_actual = None
     total_sq_diff = None
     total_rows = 0
+    all_metrics = []
 
     # Identify if data is in sample subdirectories or root
     sample_dirs = [d for d in os.listdir(save_dir) if os.path.isdir(os.path.join(save_dir, d)) and d.startswith("sample_")]
@@ -68,35 +70,56 @@ def calculate_per_feature_metrics(save_dir: str):
         actual_path = os.path.join(save_dir, subdir, "actual_data.csv")
 
         if not os.path.exists(pred_path) or not os.path.exists(actual_path):
+            print(f"Warning: Missing prediction or actual data in {subdir}. Skipping.")
             continue
 
-        pred_df = pd.read_csv(pred_path)
-        actual_df = pd.read_csv(actual_path)
+        try:
+            pred_df = pd.read_csv(pred_path)
+            actual_df = pd.read_csv(actual_path)
+        except Exception as e:
+            print(f"Error reading CSVs in {subdir}: {e}. Skipping.")
+            continue
 
         # Calculate differences
-        diff = actual_df - pred_df
-        abs_diff = diff.abs()
-        
-        if total_abs_diff is None:
-            total_abs_diff = abs_diff.sum()
-            total_abs_actual = actual_df.abs().sum()
-            total_sq_diff = (diff ** 2).sum()
-        else:
-            total_abs_diff += abs_diff.sum()
-            total_abs_actual += actual_df.abs().sum()
-            total_sq_diff += (diff ** 2).sum()
-        
-        total_rows += len(actual_df)
+        try:
+            diff = actual_df - pred_df
+            abs_diff = diff.abs()
+
+            if total_abs_diff is None:
+                total_abs_diff = abs_diff.sum()
+                total_abs_actual = actual_df.abs().sum()
+                total_sq_diff = (diff ** 2).sum()
+            else:
+                total_abs_diff += abs_diff.sum()
+                total_abs_actual += actual_df.abs().sum()
+                total_sq_diff += (diff ** 2).sum()
+
+            total_rows += len(actual_df)
+        except Exception as e:
+            print(f"Error calculating metrics in {subdir}: {e}. Skipping.")
+            continue
 
     if total_rows > 0:
-        metrics_df = pd.DataFrame({
-            'WAPE': (total_abs_diff / (total_abs_actual + 1e-9)),
-            'MAE': total_abs_diff / total_rows,
-            'MSE': total_sq_diff / total_rows
-        })
+        try:
+             metrics_df = pd.DataFrame({
+                'WAPE': (total_abs_diff / (total_abs_actual + 1e-9)),
+                'MAE': total_abs_diff / total_rows,
+                'MSE': total_sq_diff / total_rows
+            })
+        except Exception as e:
+            print(f"Error creating metrics DataFrame: {e}")
+            return
+
         output_path = os.path.join(save_dir, "per_feature_metrics.csv")
-        metrics_df.to_csv(output_path)
-        print(f"Per-feature metrics saved to: {output_path}")
+
+        try:
+            metrics_df.to_csv(output_path)
+            print(f"Per-feature metrics saved to: {output_path}")
+        except Exception as e:
+            print(f"Error saving metrics to CSV: {e}")
+
+    else:
+        print("No valid data found for metric calculation.")
 
 
 def decode_data(filepath: str):
@@ -106,7 +129,10 @@ def decode_data(filepath: str):
     :param filepath: Path to the input CSV file containing encoded data.
     :return: None. The decoded data will be saved as CSV files in corresponding folders.
     """
-    data = pd.read_csv(filepath)  # Read the CSV file with encoded columns
+    try:
+        data = pd.read_csv(filepath)  # Read the CSV file with encoded columns
+    except Exception as e:
+        print(f"Error reading {filepath}: {e}")
 
     for index, row in data.iterrows():
         # Decode base64 strings and deserialize them back to original DataFrames
@@ -132,6 +158,18 @@ def decode_data(filepath: str):
         calculate_per_feature_metrics(save_dir)
 
 
-# Example usage
-your_result_csv_path = r"TST.1768886354.nrgpu1.3478941.csv"
-decode_data(your_result_csv_path)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Decode and process data from a CSV file.")
+    parser.add_argument("input_file", help="Path to the input CSV file.")
+    # parser.add_argument("--output_dir", help="Base directory for output (optional, defaults to same directory as input)", default=None) # Removed as the output directory is determined inside decode_data
+
+    args = parser.parse_args()
+
+    input_file_path = args.input_file
+    # output_directory = args.output_dir # Removed as the output directory is determined inside decode_data
+
+    decode_data(input_file_path)
+
+# Example usage:
+# python extractcsv.py /path/to/your/input.csv
+# The output will be saved in a directory created based on the input file's contents.

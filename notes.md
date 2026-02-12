@@ -15,3 +15,5 @@ conda activate pe-benchmark
 sh scripts/multivariate_forecast/Weather_script/TST.sh 
 
 "wape": Calculates WAPE on the original (inverse-transformed) data scale. This is typically preferred for business reporting
+
+python extractcsv.py 
