@@ -5,11 +5,13 @@ import logging
 import os
 import sys
 import warnings
-from typing import Dict, NoReturn
+from typing import Dict, NoReturn, List
 
 import torch
 import numpy as np
 
+from scipy.spatial.distance import cosine
+from scipy import signal
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 from ts_benchmark.utils.get_file_name import get_unique_file_suffix
@@ -34,6 +36,50 @@ def str_to_bool(value: str) -> bool:
         return False
     else:
         raise ValueError("Invalid boolean value. Please enter 'True' or 'False'.")
+
+def compute_psd(data, fs=1.0):
+    """Compute Power Spectral Density using Periodogram."""
+    freqs, psd = signal.periodogram(data, fs=fs, detrend='linear')
+    return freqs, psd
+
+def analyze_frequency_alignment(data, seq_len, d_model=512):
+    """Analyze the frequency alignment of input data."""
+    # 1. Generate a "reference" sine wave (you can customize this)
+    t = np.arange(seq_len)
+    ref_signal = np.sin(2 * np.pi * t / 24)  # Example: 24-hour period
+
+    # 2. Calculate PSD for the reference signal
+    f_ref, psd_ref = compute_psd(ref_signal)
+
+    # 3. Calculate PSD for the input data
+    f_data, psd_data = compute_psd(data[:seq_len])
+
+    # 4. Resize the arrays if they have different length
+    min_len = min(len(psd_ref), len(psd_data))
+    psd_ref = psd_ref[:min_len]
+    psd_data = psd_data[:min_len]
+
+    # 5. Normalize the PSDs to compare shape, not magnitude
+    psd_ref /= psd_ref.sum()
+    psd_data /= psd_data.sum()
+
+    # 6. Calculate Cosine Similarity
+    similarity = 1 - cosine(psd_ref.flatten(), psd_data.flatten())
+    return similarity
+
+def extract_per_feature_metrics(preds, actuals):
+    """
+    Calculate per-feature metrics (MSE, MAE)
+    """
+    mse_list = []
+    mae_list = []
+    for i in range(preds.shape[1]):  # Iterate over features
+        mse = np.mean((actuals[:, i] - preds[:, i]) ** 2)
+        mae = np.mean(np.abs(actuals[:, i] - preds[:, i]))
+        mse_list.append(mse)
+        mae_list.append(mae)
+
+    return mse_list, mae_list
 
 
 def build_data_config(args: argparse.Namespace, config_data: Dict) -> Dict:
@@ -116,6 +162,9 @@ def build_evaluation_config(args: argparse.Namespace, config_data: Dict) -> Dict
     if args.save_true_pred is not None:
         default_strategy_args["save_true_pred"] = args.save_true_pred
     default_strategy_args["deterministic"] = args.deterministic
+
+    if args.base_freq is not None:
+         default_strategy_args["base_freq"] = args.base_freq
 
     return evaluation_config
 
@@ -301,6 +350,13 @@ if __name__ == "__main__":
         help="If true, saves the model's prediction results "
         "and the true values in evaluation result file",
     )
+    parser.add_argument(
+        "--base_freq",
+        type=float,
+        default=None,
+        help="Base frequency for RoPE",
+    )
+
 
     args = parser.parse_args()
 
@@ -345,6 +401,34 @@ if __name__ == "__main__":
             model_config,
             evaluation_config,
         )
+
+        # Extract per-feature metrics and alignment after pipeline execution
+        all_metrics = []
+        for log_file in log_filenames:
+            # Load data from the log file
+            df_results = pd.read_csv(log_file)
+
+            # Extract predictions and actual values (assuming they're saved)
+            if 'inference_data' in df_results.columns and 'actual_data' in df_results.columns:
+                preds = np.array(json.loads(df_results['inference_data'][0]))
+                actuals = np.array(json.loads(df_results['actual_data'][0]))
+
+                # Calculate per-feature metrics
+                mse_list, mae_list = extract_per_feature_metrics(preds, actuals)
+
+                # Analyze frequency alignment (using the first feature for simplicity)
+                alignment_score = analyze_frequency_alignment(actuals[:, 0], seq_len=data_config['seq_len'])
+
+                # Store results
+                df_results['Per-Feature MSE'] = [mse_list]
+                df_results['Per-Feature MAE'] = [mae_list]
+                df_results['cosine_similarity'] = alignment_score
+                df_results.to_csv(log_file, index=False) # Save back to the log file
+
+                print(f"Saving results to {log_file}")
+                print(f"Per-feature metrics and cosine similarity added to {log_file}")
+            else:
+                print("Warning: 'inference_data' or 'actual_data' not found in log file.")
 
     finally:
         ParallelBackend().close(force=True)

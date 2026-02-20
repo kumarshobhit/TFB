@@ -36,6 +36,7 @@ def to_csv(data, save_dir: str, save_name: str):
 
     elif isinstance(data, list):
         num = len(data)
+
         for i in range(num):
             sample_dir = os.path.join(save_dir, f"sample_{i}")
             os.makedirs(sample_dir, exist_ok=True)
@@ -157,9 +158,11 @@ def decode_data(filepath: str):
         # Calculate per-feature metrics
         calculate_per_feature_metrics(save_dir)
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Decode and process data from a CSV file.")
+
+    parser.add_argument("--extract-wape", action="store_true", help="Extract WAPE values per feature.")
+
     parser.add_argument("input_file", help="Path to the input CSV file.")
     # parser.add_argument("--output_dir", help="Base directory for output (optional, defaults to same directory as input)", default=None) # Removed as the output directory is determined inside decode_data
 
@@ -167,7 +170,7 @@ if __name__ == "__main__":
 
     input_file_path = args.input_file
     # output_directory = args.output_dir # Removed as the output directory is determined inside decode_data
-
+    
     decode_data(input_file_path)
 
 # Example usage:
