@@ -35,13 +35,6 @@ dataETTh1 = {
     'Peak 3 (Days)': [0.33, 16.5, 0.99, 21.99, 0.33, 26.88, 11.34]
 }
 
-data= {
-    'Channel': ['% WEIGHTED ILI', '%UNWEIGHTED ILI', 'AGE 0-4', 'AGE 5-24', 'ILITOTAL', 'NUM. OF PROVIDERS', 'OT'],
-    'Peak 1 (Days)': [375.67, 375.67, 375.67, 375.67, 375.67, 355.89, 355.89],
-    'Peak 2 (Days)': [182.76, 182.76, 233.17, 233.17, 182.76, 182.76, 182.76],
-    'Peak 3 (Days)': [270.48, 270.48, 182.76, 182.76, 233.17, 120.75, 120.75]
-}
-
 
 df = pd.DataFrame(data)
 # df['Freq 1 (Hz)'] = 1 / (df['Peak 1 (Days)'] * 24)
@@ -100,13 +93,13 @@ print(f"Minimum KL Divergence: {min_kl_divergence:.4f}")
 
 
 
-# Plotting the histogram of the best rope frequencies
-if best_rope_frequencies is not None:
-    plt.figure(figsize=(8, 6))
-    sns.histplot(best_rope_frequencies, kde=False)
-    plt.title(f"Histogram of RoPE Frequencies (Base Freq: {best_base_freq_kl})")
-    plt.xlabel("Frequency")
-    plt.ylabel("Count")
-    plt.show()
-else:
-    print("No valid RoPE frequencies to plot.")
+# # Plotting the histogram of the best rope frequencies
+# if best_rope_frequencies is not None:
+#     plt.figure(figsize=(8, 6))
+#     sns.histplot(best_rope_frequencies, kde=False)
+#     plt.title(f"Histogram of RoPE Frequencies (Base Freq: {best_base_freq_kl})")
+#     plt.xlabel("Frequency")
+#     plt.ylabel("Count")
+#     plt.show()
+# else:
+#     print("No valid RoPE frequencies to plot.")

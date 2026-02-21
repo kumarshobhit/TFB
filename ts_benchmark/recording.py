@@ -2,14 +2,17 @@
 
 from __future__ import absolute_import
 
+import base64
 import io
 import itertools
 import logging
 import os
 import os.path
+import pickle
 from io import StringIO
-from typing import List, Optional
+from typing import Any, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 from pandas.errors import ParserError
 
@@ -23,6 +26,149 @@ from ts_benchmark.utils.compress import (
 from ts_benchmark.utils.get_file_name import get_unique_file_suffix
 
 logger = logging.getLogger(__name__)
+
+
+PER_FEATURE_COLUMNS = [
+    "feature_idx",
+    "feature_name",
+    "wape",
+    "mae",
+    "mse",
+]
+
+
+def _get_result_path(save_path: Optional[str]) -> str:
+    if save_path is not None:
+        result_path = (
+            os.path.join(ROOT_PATH, "result", save_path)
+            if not os.path.isabs(save_path)
+            else save_path
+        )
+    else:
+        result_path = os.path.join(ROOT_PATH, "result")
+    os.makedirs(result_path, exist_ok=True)
+    return result_path
+
+
+def _decode_artifact(value: Any) -> Any:
+    if not isinstance(value, str) or value == "":
+        return None
+    try:
+        return pickle.loads(base64.b64decode(value))
+    except Exception:
+        return None
+
+
+def _to_2d_array_with_columns(data: Any) -> Tuple[np.ndarray, Optional[List[str]]]:
+    if isinstance(data, pd.DataFrame):
+        return data.to_numpy(), [str(col) for col in data.columns]
+
+    if isinstance(data, np.ndarray):
+        arr = np.asarray(data)
+        if arr.ndim == 0:
+            return arr.reshape(1, 1), None
+        if arr.ndim == 1:
+            return arr.reshape(-1, 1), None
+        if arr.ndim == 2:
+            return arr, None
+        return arr.reshape(-1, arr.shape[-1]), None
+
+    if isinstance(data, list):
+        arrays = []
+        column_names = None
+        for item in data:
+            item_arr, item_columns = _to_2d_array_with_columns(item)
+            if item_arr.size == 0:
+                continue
+            if column_names is None and item_columns is not None:
+                column_names = item_columns
+            arrays.append(item_arr)
+        if not arrays:
+            return np.empty((0, 0)), column_names
+        feat_dim = arrays[0].shape[1]
+        if any(arr.shape[1] != feat_dim for arr in arrays):
+            raise ValueError("Inconsistent feature dimensions in decoded artifacts.")
+        return np.concatenate(arrays, axis=0), column_names
+
+    raise TypeError(f"Unsupported decoded artifact type: {type(data)}")
+
+
+def compute_per_feature_metrics(result_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Computes per-feature metrics from decoded true/pred artifacts in a result DataFrame.
+    """
+    metric_rows = []
+    for _, row in result_df.iterrows():
+        actual_data = _decode_artifact(row.get("actual_data"))
+        inference_data = _decode_artifact(row.get("inference_data"))
+        if actual_data is None or inference_data is None:
+            continue
+
+        try:
+            actual_arr, feature_names = _to_2d_array_with_columns(actual_data)
+            pred_arr, _ = _to_2d_array_with_columns(inference_data)
+        except (TypeError, ValueError):
+            continue
+
+        if actual_arr.shape != pred_arr.shape:
+            continue
+        if actual_arr.size == 0:
+            continue
+
+        num_points = actual_arr.shape[0]
+        abs_diff = np.abs(actual_arr - pred_arr)
+        sq_diff = np.square(actual_arr - pred_arr)
+        sum_abs_err = np.sum(abs_diff, axis=0)
+        sum_abs_actual = np.sum(np.abs(actual_arr), axis=0)
+        sum_sq_err = np.sum(sq_diff, axis=0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            wape = np.where(sum_abs_actual > 0, sum_abs_err / sum_abs_actual * 100, np.nan)
+        mae = sum_abs_err / num_points
+        mse = sum_sq_err / num_points
+
+        feature_count = actual_arr.shape[1]
+        for feature_idx in range(feature_count):
+            feature_name = (
+                feature_names[feature_idx]
+                if feature_names is not None and feature_idx < len(feature_names)
+                else f"feature_{feature_idx}"
+            )
+            metric_rows.append(
+                {
+                    "model_name": row.get("model_name"),
+                    "model_params": row.get("model_params"),
+                    "strategy_args": row.get("strategy_args"),
+                    "file_name": row.get("file_name"),
+                    "feature_idx": feature_idx,
+                    "feature_name": feature_name,
+                    "wape": float(wape[feature_idx]),
+                    "mae": float(mae[feature_idx]),
+                    "mse": float(mse[feature_idx]),
+                    "sum_abs_err": float(sum_abs_err[feature_idx]),
+                    "sum_abs_actual": float(sum_abs_actual[feature_idx]),
+                    "num_points": int(num_points),
+                }
+            )
+
+    if not metric_rows:
+        return pd.DataFrame(columns=PER_FEATURE_COLUMNS)
+    return pd.DataFrame(metric_rows, columns=PER_FEATURE_COLUMNS)
+
+
+def save_per_feature_metrics(
+    per_feature_df: pd.DataFrame, save_path: Optional[str], file_prefix: str
+) -> Optional[str]:
+    """
+    Save pre-computed per-feature metrics to an additional CSV.
+    """
+    if per_feature_df.empty:
+        return None
+
+    result_path = _get_result_path(save_path)
+    file_name = f"{file_prefix}_per_feature_metrics{get_unique_file_suffix()}.csv"
+    file_path = os.path.join(result_path, file_name)
+    per_feature_df.to_csv(file_path, index=False)
+    return file_path
 
 
 def read_record_file(fn: str) -> pd.DataFrame:
@@ -151,15 +297,7 @@ def save_log(
                 "-------------More error messages can be found in the record files!-------------"
             )
 
-    if save_path is not None:
-        result_path = (
-            os.path.join(ROOT_PATH, "result", save_path)
-            if not os.path.isabs(save_path)
-            else save_path
-        )
-    else:
-        result_path = os.path.join(ROOT_PATH, "result")
-    os.makedirs(result_path, exist_ok=True)
+    result_path = _get_result_path(save_path)
 
     record_filename = file_prefix + get_unique_file_suffix()
     file_path = os.path.join(result_path, record_filename)

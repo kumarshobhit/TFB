@@ -1,7 +1,7 @@
 python quantitative_freq_analysis.py \
   --dataset ETTh1 \
   --pe_type rope \
-  --base_freq 2000 \
+  --base_freq 215 \
   --d_model 128 \
   --n_heads 8 \
 

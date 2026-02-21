@@ -13,7 +13,11 @@ from ts_benchmark.data.data_source import (
 from ts_benchmark.data.suites.global_storage import GlobalStorageDataServer
 from ts_benchmark.evaluation.evaluate_model import eval_model
 from ts_benchmark.models import get_models
-from ts_benchmark.recording import save_log
+from ts_benchmark.recording import (
+    compute_per_feature_metrics,
+    save_log,
+    save_per_feature_metrics,
+)
 from ts_benchmark.utils.parallel import ParallelBackend
 
 
@@ -153,6 +157,7 @@ def pipeline(
     for model_factory, result_itr, model_save_name in zip(
         model_factory_list, result_list, model_save_names
     ):
+        per_feature_chunks = []
         for i, result_df in enumerate(result_itr.collect()):
             log_file_names.append(
                 save_log(
@@ -160,6 +165,16 @@ def pipeline(
                     evaluation_config["save_path"],
                     model_save_name if i == 0 else f"{model_save_name}-{i}",
                 )
+            )
+            per_feature_df = compute_per_feature_metrics(result_df)
+            if not per_feature_df.empty:
+                per_feature_chunks.append(per_feature_df)
+
+        if per_feature_chunks:
+            save_per_feature_metrics(
+                pd.concat(per_feature_chunks, axis=0, ignore_index=True),
+                evaluation_config["save_path"],
+                model_save_name,
             )
 
     return log_file_names
