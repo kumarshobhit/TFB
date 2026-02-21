@@ -5,6 +5,7 @@ from __future__ import absolute_import
 import base64
 import io
 import itertools
+import json
 import logging
 import os
 import os.path
@@ -16,7 +17,7 @@ import numpy as np
 import pandas as pd
 from pandas.errors import ParserError
 
-from ts_benchmark.common.constant import ROOT_PATH
+from ts_benchmark.common.constant import FORECASTING_DATASET_PATH, ROOT_PATH
 from ts_benchmark.utils.compress import (
     get_compress_method_from_ext,
     decompress,
@@ -33,7 +34,34 @@ PER_FEATURE_COLUMNS = [
     "feature_name",
     "wape",
     "mae",
+    "mse"
+]
+
+INTERNAL_PER_FEATURE_COLUMNS = [
+    "model_name",
+    "model_params",
+    "strategy_args",
+    "file_name",
+    "feature_idx",
+    "feature_name",
+    "wape",
+    "mae",
     "mse",
+    "sum_abs_err",
+    "sum_abs_actual",
+    "num_points",
+]
+
+COSINE_COLUMNS = [
+    "pe_type",
+    "period",
+    "base_freq",
+    "n_heads",
+    "seq_len",
+    "d_model",
+    "cosine_sim",
+    "cosine_sim_default",
+    "delta_cosine",
 ]
 
 
@@ -151,8 +179,335 @@ def compute_per_feature_metrics(result_df: pd.DataFrame) -> pd.DataFrame:
             )
 
     if not metric_rows:
-        return pd.DataFrame(columns=PER_FEATURE_COLUMNS)
-    return pd.DataFrame(metric_rows, columns=PER_FEATURE_COLUMNS)
+        return pd.DataFrame(columns=INTERNAL_PER_FEATURE_COLUMNS)
+    return pd.DataFrame(metric_rows, columns=INTERNAL_PER_FEATURE_COLUMNS)
+
+
+def _is_tst_pe_row(row: pd.Series) -> bool:
+    model_name = str(row.get("model_name", "")).lower()
+    if "tst" not in model_name:
+        return False
+    params = _parse_model_params(row.get("model_params"))
+    return str(params.get("pos_encoding", "")).lower() in {"sinespe", "rotary"}
+
+
+def _parse_model_params(value: Any) -> dict:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or value == "":
+        return {}
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _build_pe_config(row: pd.Series) -> Optional[dict]:
+    params = _parse_model_params(row.get("model_params"))
+    pos_encoding = str(params.get("pos_encoding", "")).lower()
+    if pos_encoding not in {"sinespe", "rotary"}:
+        return None
+
+    seq_len = params.get("seq_len")
+    d_model = params.get("d_model")
+    if seq_len is None or d_model is None:
+        return None
+
+    try:
+        seq_len = int(seq_len)
+        d_model = int(d_model)
+    except (TypeError, ValueError):
+        return None
+
+    if seq_len <= 1 or d_model <= 1:
+        return None
+
+    if pos_encoding == "sinespe":
+        period = params.get("period")
+        try:
+            period = int(period) if period is not None else None
+        except (TypeError, ValueError):
+            period = None
+        return {
+            "pe_type": "sinespe",
+            "period": period if period and period > 1 else None,
+            "base_freq": np.nan,
+            "n_heads": int(params.get("n_heads", 8)),
+            "seq_len": seq_len,
+            "d_model": d_model,
+        }
+
+    try:
+        base_freq = float(params.get("base_freq", 10000.0))
+    except (TypeError, ValueError):
+        base_freq = 10000.0
+    try:
+        n_heads = int(params.get("n_heads", 8))
+    except (TypeError, ValueError):
+        n_heads = 8
+    if n_heads <= 0 or d_model % n_heads != 0:
+        return None
+    return {
+        "pe_type": "rope",
+        "period": np.nan,
+        "base_freq": base_freq,
+        "n_heads": n_heads,
+        "seq_len": seq_len,
+        "d_model": d_model,
+    }
+
+
+def _load_dataset_series(file_name: str) -> Optional[pd.DataFrame]:
+    path = os.path.join(FORECASTING_DATASET_PATH, file_name)
+    if not os.path.exists(path):
+        return None
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return None
+
+    if "cols" in df.columns and "data" in df.columns:
+        try:
+            df = df.pivot(index="date", columns="cols", values="data").reset_index()
+        except Exception:
+            return None
+
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    if "date" in numeric_cols:
+        numeric_cols = numeric_cols.drop("date", errors="ignore")
+    if len(numeric_cols) == 0:
+        return None
+    return df[numeric_cols]
+
+
+def _get_feature_values(
+    dataset_df: pd.DataFrame, feature_name: Any, feature_idx: Any
+) -> Optional[np.ndarray]:
+    if feature_name in dataset_df.columns:
+        data = dataset_df[feature_name].to_numpy(dtype=float, copy=False)
+        return data
+
+    feature_name_str = str(feature_name)
+    if feature_name_str in dataset_df.columns:
+        data = dataset_df[feature_name_str].to_numpy(dtype=float, copy=False)
+        return data
+
+    try:
+        idx = int(feature_idx)
+    except (TypeError, ValueError):
+        return None
+    if idx < 0 or idx >= dataset_df.shape[1]:
+        return None
+    return dataset_df.iloc[:, idx].to_numpy(dtype=float, copy=False)
+
+
+def _linear_detrend(signal: np.ndarray) -> np.ndarray:
+    x = np.arange(signal.shape[0], dtype=float)
+    coeffs = np.polyfit(x, signal, deg=1)
+    return signal - (coeffs[0] * x + coeffs[1])
+
+
+def _periodogram_1d(signal: np.ndarray) -> np.ndarray:
+    values = np.asarray(signal, dtype=float)
+    if values.ndim != 1 or values.size < 2:
+        return np.array([])
+    values = values[np.isfinite(values)]
+    if values.size < 2:
+        return np.array([])
+    detrended = _linear_detrend(values)
+    spectrum = np.fft.rfft(detrended)
+    return np.abs(spectrum) ** 2
+
+
+def _normalized_pe_spectrum(
+    pe_type: str,
+    seq_len: int,
+    d_model: int,
+    period: Optional[int] = None,
+    base_freq: float = 10000.0,
+    n_heads: int = 8,
+) -> Optional[np.ndarray]:
+    positions = np.arange(seq_len, dtype=float)[:, None]
+    if pe_type == "sinespe":
+        div_term = np.exp(np.arange(0, d_model, 2, dtype=float) * -(np.log(10000.0) / d_model))
+        encoding = np.zeros((seq_len, d_model), dtype=float)
+        pos = positions if period is None else (positions % period)
+        encoding[:, 0::2] = np.sin(pos * div_term)
+        encoding[:, 1::2] = np.cos(pos * div_term)
+    elif pe_type == "rope":
+        if n_heads <= 0 or d_model % n_heads != 0:
+            return None
+        head_dim = d_model // n_heads
+        if head_dim <= 1:
+            return None
+        theta = 1.0 / (base_freq ** (np.arange(0, head_dim, 2, dtype=float) / head_dim))
+        idx_theta = positions * theta[None, :]
+        head_waves = np.concatenate([np.cos(idx_theta), np.sin(idx_theta)], axis=1)
+        if head_waves.shape[1] < head_dim:
+            pad = np.zeros((seq_len, head_dim - head_waves.shape[1]))
+            head_waves = np.concatenate([head_waves, pad], axis=1)
+        head_waves = head_waves[:, :head_dim]
+        encoding = np.tile(head_waves, (1, n_heads))
+        encoding = encoding[:, :d_model]
+    else:
+        return None
+
+    pe_psd = None
+    for i in range(encoding.shape[1]):
+        p = _periodogram_1d(encoding[:, i])
+        if p.size == 0:
+            continue
+        if pe_psd is None:
+            pe_psd = np.zeros_like(p)
+        pe_psd += p
+    if pe_psd is None or pe_psd.sum() <= 0:
+        return None
+    return pe_psd / (pe_psd.sum() + 1e-12)
+
+
+def _normalized_feature_spectrum(values: np.ndarray, seq_len: int) -> Optional[np.ndarray]:
+    if values is None or len(values) < seq_len:
+        return None
+    stride = max(1, seq_len // 2)
+    psd_sum = None
+    count = 0
+    for start in range(0, len(values) - seq_len + 1, stride):
+        window = values[start : start + seq_len]
+        if np.std(window) < 1e-6:
+            continue
+        window = (window - np.mean(window)) / (np.std(window) + 1e-12)
+        p = _periodogram_1d(window)
+        if p.size == 0:
+            continue
+        if psd_sum is None:
+            psd_sum = np.zeros_like(p)
+        psd_sum += p
+        count += 1
+    if psd_sum is None or count == 0 or psd_sum.sum() <= 0:
+        return None
+    avg_psd = psd_sum / count
+    return avg_psd / (avg_psd.sum() + 1e-12)
+
+
+def _cosine_similarity(a: Optional[np.ndarray], b: Optional[np.ndarray]) -> float:
+    if a is None or b is None:
+        return float("nan")
+    if a.shape != b.shape:
+        return float("nan")
+    denom = np.linalg.norm(a) * np.linalg.norm(b)
+    if denom <= 0:
+        return float("nan")
+    return float(np.dot(a, b) / denom)
+
+
+def enrich_per_feature_with_cosine(per_feature_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Enrich per-feature metrics with cosine alignment for TST SineSPE/RoPE runs.
+    """
+    if per_feature_df.empty:
+        return per_feature_df
+
+    target_mask = per_feature_df.apply(_is_tst_pe_row, axis=1)
+    if not target_mask.any():
+        return per_feature_df
+
+    enriched = per_feature_df.copy()
+    for col in COSINE_COLUMNS:
+        if col not in enriched.columns:
+            enriched[col] = np.nan
+
+    data_cache = {}
+    feature_spec_cache = {}
+    pe_spec_cache = {}
+    pe_default_cache = {}
+
+    for idx, row in enriched[target_mask].iterrows():
+        pe_cfg = _build_pe_config(row)
+        if pe_cfg is None:
+            continue
+
+        file_name = row.get("file_name")
+        if file_name not in data_cache:
+            data_cache[file_name] = _load_dataset_series(file_name)
+        dataset_df = data_cache[file_name]
+        if dataset_df is None:
+            continue
+
+        seq_len = pe_cfg["seq_len"]
+        feature_name = row.get("feature_name")
+        feature_idx = row.get("feature_idx")
+        spec_key = (file_name, feature_name, feature_idx, seq_len)
+        if spec_key not in feature_spec_cache:
+            values = _get_feature_values(dataset_df, feature_name, feature_idx)
+            feature_spec_cache[spec_key] = _normalized_feature_spectrum(values, seq_len)
+        feature_spec = feature_spec_cache[spec_key]
+        if feature_spec is None:
+            continue
+
+        pe_key = (
+            pe_cfg["pe_type"],
+            pe_cfg["seq_len"],
+            pe_cfg["d_model"],
+            pe_cfg["period"],
+            pe_cfg["base_freq"],
+            pe_cfg["n_heads"],
+        )
+        if pe_key not in pe_spec_cache:
+            pe_spec_cache[pe_key] = _normalized_pe_spectrum(
+                pe_cfg["pe_type"],
+                pe_cfg["seq_len"],
+                pe_cfg["d_model"],
+                period=pe_cfg["period"] if pe_cfg["pe_type"] == "sinespe" else None,
+                base_freq=pe_cfg["base_freq"] if pe_cfg["pe_type"] == "rope" else 10000.0,
+                n_heads=pe_cfg["n_heads"],
+            )
+        pe_spec = pe_spec_cache[pe_key]
+
+        default_key = (
+            pe_cfg["pe_type"],
+            pe_cfg["seq_len"],
+            pe_cfg["d_model"],
+            pe_cfg["n_heads"],
+        )
+        if default_key not in pe_default_cache:
+            if pe_cfg["pe_type"] == "sinespe":
+                pe_default_cache[default_key] = _normalized_pe_spectrum(
+                    "sinespe",
+                    pe_cfg["seq_len"],
+                    pe_cfg["d_model"],
+                    period=None,
+                    n_heads=pe_cfg["n_heads"],
+                )
+            else:
+                pe_default_cache[default_key] = _normalized_pe_spectrum(
+                    "rope",
+                    pe_cfg["seq_len"],
+                    pe_cfg["d_model"],
+                    base_freq=10000.0,
+                    n_heads=pe_cfg["n_heads"],
+                )
+        pe_default = pe_default_cache[default_key]
+
+        cosine_sim = _cosine_similarity(feature_spec, pe_spec)
+        cosine_default = _cosine_similarity(feature_spec, pe_default)
+        delta = (
+            cosine_sim - cosine_default
+            if np.isfinite(cosine_sim) and np.isfinite(cosine_default)
+            else np.nan
+        )
+
+        enriched.at[idx, "pe_type"] = pe_cfg["pe_type"]
+        enriched.at[idx, "period"] = pe_cfg["period"]
+        enriched.at[idx, "base_freq"] = pe_cfg["base_freq"]
+        enriched.at[idx, "n_heads"] = pe_cfg["n_heads"]
+        enriched.at[idx, "seq_len"] = pe_cfg["seq_len"]
+        enriched.at[idx, "d_model"] = pe_cfg["d_model"]
+        enriched.at[idx, "cosine_sim"] = cosine_sim
+        enriched.at[idx, "cosine_sim_default"] = cosine_default
+        enriched.at[idx, "delta_cosine"] = delta
+
+    return enriched
 
 
 def save_per_feature_metrics(
@@ -167,7 +522,12 @@ def save_per_feature_metrics(
     result_path = _get_result_path(save_path)
     file_name = f"{file_prefix}_per_feature_metrics{get_unique_file_suffix()}.csv"
     file_path = os.path.join(result_path, file_name)
-    per_feature_df.to_csv(file_path, index=False)
+    export_columns = [
+        c for c in (PER_FEATURE_COLUMNS + COSINE_COLUMNS) if c in per_feature_df.columns
+    ]
+    if not export_columns:
+        export_columns = list(per_feature_df.columns)
+    per_feature_df.to_csv(file_path, index=False, columns=export_columns)
     return file_path
 
 

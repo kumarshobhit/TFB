@@ -15,6 +15,7 @@ from ts_benchmark.evaluation.evaluate_model import eval_model
 from ts_benchmark.models import get_models
 from ts_benchmark.recording import (
     compute_per_feature_metrics,
+    enrich_per_feature_with_cosine,
     save_log,
     save_per_feature_metrics,
 )
@@ -171,8 +172,10 @@ def pipeline(
                 per_feature_chunks.append(per_feature_df)
 
         if per_feature_chunks:
+            per_feature_df = pd.concat(per_feature_chunks, axis=0, ignore_index=True)
+            per_feature_df = enrich_per_feature_with_cosine(per_feature_df)
             save_per_feature_metrics(
-                pd.concat(per_feature_chunks, axis=0, ignore_index=True),
+                per_feature_df,
                 evaluation_config["save_path"],
                 model_save_name,
             )
