@@ -1,9 +1,10 @@
 import numpy as np
 import pandas as pd
 import argparse 
+import os
 from scipy.signal import find_peaks
 
-def find_top_raw_frequencies(time_series, top_n=5):
+def find_top_raw_frequencies(time_series, top_n=5, max_period=96):
     """
     Performs FFT on raw data without any time-unit assumptions.
     Returns: Frequency (Cycles per Step), Power
@@ -35,8 +36,12 @@ def find_top_raw_frequencies(time_series, top_n=5):
         # Fallback if no peaks are found, just take the largest magnitude bins
         sorted_peak_indices = np.argsort(power_spectrum)[::-1]
     
-    # 7. Extract Top N
-    top_indices = sorted_peak_indices[:top_n]
+    # 7. Filter by period <= max_period (i.e., remove very low frequencies)
+    # period = 1 / freq, and freq > 0 here.
+    filtered_indices = [
+        idx for idx in sorted_peak_indices if (1.0 / positive_freqs[idx]) <= max_period
+    ]
+    top_indices = filtered_indices[:top_n]
     
     results = []
     for idx in top_indices:
@@ -49,6 +54,8 @@ def find_top_raw_frequencies(time_series, top_n=5):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_name', type=str, default='ETTh1')
+    parser.add_argument('--seq_len', type=int, default=96)
+    parser.add_argument('--output_dir', type=str, default='fft_analysis')
     args = parser.parse_args()
 
     # Paths
@@ -78,14 +85,14 @@ def main():
             ts = df[col].dropna().values.astype(float)
             
             # Get Top 5 Frequencies
-            top_5 = find_top_raw_frequencies(ts, top_n=5)
+            top_5 = find_top_raw_frequencies(ts, top_n=5, max_period=args.seq_len)
             
             # Build Table Row
             row = {'Channel': col}
             for i in range(5):
                 # Handle cases where fewer than 5 peaks might be found
                 if i < len(top_5):
-                    freq, pwr = top_5[i]
+                    freq, _ = top_5[i]
                     row[f'Freq {i+1} (Cycles/Step)'] = f"{freq:.5f}"
                 else:
                     row[f'Freq {i+1} (Cycles/Step)'] = "N/A"
@@ -100,6 +107,11 @@ def main():
             print(summary_df.to_markdown(index=False))
         except ImportError:
             print(summary_df.to_string(index=False))
+
+        os.makedirs(args.output_dir, exist_ok=True)
+        output_path = os.path.join(args.output_dir, f"{args.dataset_name}.csv")
+        summary_df.to_csv(output_path, index=False)
+        print(f"\nSaved FFT summary CSV to: {output_path}")
 
     except FileNotFoundError:
         print(f"Error: File not found at {DATA_FILEPATH}")

@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 import math
+import logging
+
+logger = logging.getLogger(__name__)
 
 class FixedPositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
@@ -202,12 +205,20 @@ def get_relative_positions(
     
 
 class SineSPE(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=512, period=None):
+    def __init__(self, d_model, dropout=0.1, max_len=512, spe_freq=None, spe_k=None):
         super(SineSPE, self).__init__()
         self.d_model = d_model
         self.max_len = max_len
         self.dropout = nn.Dropout(p=dropout)
-        self.period = period
+        try:
+            self.spe_freq = float(spe_freq) if spe_freq is not None else None
+        except (TypeError, ValueError):
+            self.spe_freq = None
+        try:
+            self.spe_k = int(spe_k) if spe_k is not None else None
+        except (TypeError, ValueError):
+            self.spe_k = None
+        self._warned_spe_k_fallback = False
         self.register_buffer('sine', self._generate_sine_encoding())
 
     def _generate_sine_encoding(self):
@@ -215,13 +226,27 @@ class SineSPE(nn.Module):
         div_term = torch.exp(torch.arange(0, self.d_model, 2).float() * -(math.log(10000.0) / self.d_model))
         encoding = torch.zeros(self.max_len, self.d_model)
 
-        # If a dominant period is provided, make the encoding periodic
-        if self.period is not None and self.period > 1:
-            # Use modulo to create a repeating pattern based on the dominant period.
-            # This makes the positional encoding for step `t` the same as for `t + period`.
-            periodic_position = position % self.period
-            encoding[:, 0::2] = torch.sin(periodic_position * div_term)
-            encoding[:, 1::2] = torch.cos(periodic_position * div_term)
+        pair_count = div_term.shape[0]
+        default_spe_k = max(0, min(pair_count - 1, self.d_model // 4))
+        spe_k = self.spe_k
+        if spe_k is None or spe_k < 0 or spe_k >= pair_count:
+            if self.spe_freq is not None and self.spe_freq > 0 and not self._warned_spe_k_fallback:
+                logger.warning(
+                    "Invalid or missing spe_k=%s for d_model=%s; using fallback spe_k=%s",
+                    self.spe_k,
+                    self.d_model,
+                    default_spe_k,
+                )
+                self._warned_spe_k_fallback = True
+            spe_k = default_spe_k
+
+        # Frequency-first SineSPE with anchor dimension scaling.
+        if self.spe_freq is not None and self.spe_freq > 0:
+            anchor = div_term[spe_k]
+            f_max = self.spe_freq / anchor
+            phase = 2.0 * math.pi * f_max * position
+            encoding[:, 0::2] = torch.sin(phase * div_term)
+            encoding[:, 1::2] = torch.cos(phase * div_term)
         else:
             # Original absolute positional encoding
             encoding[:, 0::2] = torch.sin(position * div_term)

@@ -12,7 +12,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
-from ts_benchmark.utils.get_file_name import get_unique_file_suffix
+from ts_benchmark.utils.get_file_name import build_pe_tag_from_model_params
 from ts_benchmark.report import report
 from ts_benchmark.common.constant import CONFIG_PATH, THIRD_PARTY_PATH
 from ts_benchmark.pipeline import pipeline
@@ -351,7 +351,16 @@ if __name__ == "__main__":
 
     report_config["log_files_list"] = log_filenames
     if args.report_method == "csv":
-        filename = get_unique_file_suffix()
-        leaderboard_file_name = "test_report" + filename
+        model_entries = model_config.get("models", [])
+        pe_tags = []
+        for model_entry in model_entries:
+            tag = build_pe_tag_from_model_params(model_entry.get("model_hyper_params"))
+            if tag:
+                pe_tags.append(tag)
+        pe_tags = list(dict.fromkeys(pe_tags))
+        if len(pe_tags) == 1:
+            leaderboard_file_name = f"test_report_{pe_tags[0]}.csv"
+        else:
+            leaderboard_file_name = "test_report.csv"
         report_config["leaderboard_file_name"] = leaderboard_file_name
     report(report_config, report_method=args.report_method)

@@ -24,7 +24,10 @@ from ts_benchmark.utils.compress import (
     compress,
     get_compress_file_ext,
 )
-from ts_benchmark.utils.get_file_name import get_unique_file_suffix
+from ts_benchmark.utils.get_file_name import (
+    build_pe_tag_from_model_params,
+    resolve_nonconflicting_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +57,8 @@ INTERNAL_PER_FEATURE_COLUMNS = [
 
 COSINE_COLUMNS = [
     "pe_type",
-    "period",
+    "spe_freq",
+    "spe_k",
     "base_freq",
     "n_heads",
     "seq_len",
@@ -121,11 +125,31 @@ def _to_2d_array_with_columns(data: Any) -> Tuple[np.ndarray, Optional[List[str]
     raise TypeError(f"Unsupported decoded artifact type: {type(data)}")
 
 
+def get_dataset_feature_names(file_name: Any) -> Optional[List[str]]:
+    """
+    Load feature names from dataset/forecasting/<file_name> for fallback labeling.
+    """
+    if not isinstance(file_name, str) or not file_name:
+        return None
+    dataset_df = _load_dataset_series(file_name)
+    if dataset_df is None:
+        return None
+    return [str(col) for col in dataset_df.columns]
+
+
+def _is_generic_feature_name(name: Any) -> bool:
+    if name is None:
+        return True
+    name_str = str(name)
+    return name_str == "" or name_str.startswith("feature_")
+
+
 def compute_per_feature_metrics(result_df: pd.DataFrame) -> pd.DataFrame:
     """
     Computes per-feature metrics from decoded true/pred artifacts in a result DataFrame.
     """
     metric_rows = []
+    dataset_feature_cache = {}
     for _, row in result_df.iterrows():
         actual_data = _decode_artifact(row.get("actual_data"))
         inference_data = _decode_artifact(row.get("inference_data"))
@@ -156,11 +180,24 @@ def compute_per_feature_metrics(result_df: pd.DataFrame) -> pd.DataFrame:
 
         feature_count = actual_arr.shape[1]
         for feature_idx in range(feature_count):
-            feature_name = (
+            decoded_feature_name = (
                 feature_names[feature_idx]
                 if feature_names is not None and feature_idx < len(feature_names)
                 else f"feature_{feature_idx}"
             )
+            feature_name = decoded_feature_name
+            if _is_generic_feature_name(feature_name):
+                file_name = row.get("file_name")
+                if file_name not in dataset_feature_cache:
+                    dataset_feature_cache[file_name] = get_dataset_feature_names(
+                        file_name
+                    )
+                dataset_feature_names = dataset_feature_cache[file_name]
+                if (
+                    dataset_feature_names is not None
+                    and 0 <= feature_idx < len(dataset_feature_names)
+                ):
+                    feature_name = dataset_feature_names[feature_idx]
             metric_rows.append(
                 {
                     "model_name": row.get("model_name"),
@@ -224,16 +261,26 @@ def _build_pe_config(row: pd.Series) -> Optional[dict]:
         return None
 
     if pos_encoding == "sinespe":
-        period = params.get("period")
+        spe_freq = params.get("spe_freq")
         try:
-            period = int(period) if period is not None else None
+            spe_freq = float(spe_freq) if spe_freq is not None else None
         except (TypeError, ValueError):
-            period = None
+            spe_freq = None
+        spe_k = params.get("spe_k")
+        try:
+            spe_k = int(spe_k) if spe_k is not None else None
+        except (TypeError, ValueError):
+            spe_k = None
+        try:
+            n_heads = int(params.get("n_heads", 8))
+        except (TypeError, ValueError):
+            n_heads = 8
         return {
             "pe_type": "sinespe",
-            "period": period if period and period > 1 else None,
+            "spe_freq": spe_freq if spe_freq and spe_freq > 0 else None,
+            "spe_k": spe_k,
             "base_freq": np.nan,
-            "n_heads": int(params.get("n_heads", 8)),
+            "n_heads": n_heads,
             "seq_len": seq_len,
             "d_model": d_model,
         }
@@ -250,12 +297,25 @@ def _build_pe_config(row: pd.Series) -> Optional[dict]:
         return None
     return {
         "pe_type": "rope",
-        "period": np.nan,
+        "spe_freq": np.nan,
+        "spe_k": np.nan,
         "base_freq": base_freq,
         "n_heads": n_heads,
         "seq_len": seq_len,
         "d_model": d_model,
     }
+
+
+def _resolve_spe_k(d_model: int, spe_k: Any) -> int:
+    pair_count = max(1, d_model // 2)
+    default_spe_k = max(0, min(pair_count - 1, d_model // 4))
+    try:
+        parsed = int(spe_k)
+    except (TypeError, ValueError):
+        return default_spe_k
+    if parsed < 0 or parsed >= pair_count:
+        return default_spe_k
+    return parsed
 
 
 def _load_dataset_series(file_name: str) -> Optional[pd.DataFrame]:
@@ -324,7 +384,8 @@ def _normalized_pe_spectrum(
     pe_type: str,
     seq_len: int,
     d_model: int,
-    period: Optional[int] = None,
+    spe_freq: Optional[float] = None,
+    spe_k: Optional[int] = None,
     base_freq: float = 10000.0,
     n_heads: int = 8,
 ) -> Optional[np.ndarray]:
@@ -332,9 +393,16 @@ def _normalized_pe_spectrum(
     if pe_type == "sinespe":
         div_term = np.exp(np.arange(0, d_model, 2, dtype=float) * -(np.log(10000.0) / d_model))
         encoding = np.zeros((seq_len, d_model), dtype=float)
-        pos = positions if period is None else (positions % period)
-        encoding[:, 0::2] = np.sin(pos * div_term)
-        encoding[:, 1::2] = np.cos(pos * div_term)
+        if spe_freq is not None and spe_freq > 0:
+            anchor_idx = _resolve_spe_k(d_model, spe_k)
+            anchor = div_term[anchor_idx]
+            f_max = spe_freq / anchor
+            phase = 2.0 * np.pi * f_max * positions
+            encoding[:, 0::2] = np.sin(phase * div_term)
+            encoding[:, 1::2] = np.cos(phase * div_term)
+        else:
+            encoding[:, 0::2] = np.sin(positions * div_term)
+            encoding[:, 1::2] = np.cos(positions * div_term)
     elif pe_type == "rope":
         if n_heads <= 0 or d_model % n_heads != 0:
             return None
@@ -449,7 +517,8 @@ def enrich_per_feature_with_cosine(per_feature_df: pd.DataFrame) -> pd.DataFrame
             pe_cfg["pe_type"],
             pe_cfg["seq_len"],
             pe_cfg["d_model"],
-            pe_cfg["period"],
+            pe_cfg["spe_freq"],
+            pe_cfg["spe_k"],
             pe_cfg["base_freq"],
             pe_cfg["n_heads"],
         )
@@ -458,7 +527,8 @@ def enrich_per_feature_with_cosine(per_feature_df: pd.DataFrame) -> pd.DataFrame
                 pe_cfg["pe_type"],
                 pe_cfg["seq_len"],
                 pe_cfg["d_model"],
-                period=pe_cfg["period"] if pe_cfg["pe_type"] == "sinespe" else None,
+                spe_freq=pe_cfg["spe_freq"] if pe_cfg["pe_type"] == "sinespe" else None,
+                spe_k=pe_cfg["spe_k"] if pe_cfg["pe_type"] == "sinespe" else None,
                 base_freq=pe_cfg["base_freq"] if pe_cfg["pe_type"] == "rope" else 10000.0,
                 n_heads=pe_cfg["n_heads"],
             )
@@ -476,7 +546,7 @@ def enrich_per_feature_with_cosine(per_feature_df: pd.DataFrame) -> pd.DataFrame
                     "sinespe",
                     pe_cfg["seq_len"],
                     pe_cfg["d_model"],
-                    period=None,
+                    spe_freq=None,
                     n_heads=pe_cfg["n_heads"],
                 )
             else:
@@ -498,7 +568,8 @@ def enrich_per_feature_with_cosine(per_feature_df: pd.DataFrame) -> pd.DataFrame
         )
 
         enriched.at[idx, "pe_type"] = pe_cfg["pe_type"]
-        enriched.at[idx, "period"] = pe_cfg["period"]
+        enriched.at[idx, "spe_freq"] = pe_cfg["spe_freq"]
+        enriched.at[idx, "spe_k"] = pe_cfg["spe_k"]
         enriched.at[idx, "base_freq"] = pe_cfg["base_freq"]
         enriched.at[idx, "n_heads"] = pe_cfg["n_heads"]
         enriched.at[idx, "seq_len"] = pe_cfg["seq_len"]
@@ -520,8 +591,14 @@ def save_per_feature_metrics(
         return None
 
     result_path = _get_result_path(save_path)
-    file_name = f"{file_prefix}_per_feature_metrics{get_unique_file_suffix()}.csv"
+    model_params = per_feature_df.iloc[0].get("model_params", None)
+    pe_tag = build_pe_tag_from_model_params(model_params)
+    if pe_tag:
+        file_name = f"{file_prefix}_per_feature_metrics_{pe_tag}.csv"
+    else:
+        file_name = f"{file_prefix}_per_feature_metrics.csv"
     file_path = os.path.join(result_path, file_name)
+    file_path = resolve_nonconflicting_path(file_path)
     export_columns = [
         c for c in (PER_FEATURE_COLUMNS + COSINE_COLUMNS) if c in per_feature_df.columns
     ]
@@ -659,7 +736,16 @@ def save_log(
 
     result_path = _get_result_path(save_path)
 
-    record_filename = file_prefix + get_unique_file_suffix()
+    model_params = result_df.iloc[0].get("model_params", None)
+    pe_tag = build_pe_tag_from_model_params(model_params)
+    record_filename = f"{file_prefix}_{pe_tag}" if pe_tag else file_prefix
     file_path = os.path.join(result_path, record_filename)
+
+    if compress_method is not None:
+        ext = get_compress_file_ext(compress_method)
+        final_path = resolve_nonconflicting_path(f"{file_path}.{ext}")
+        file_path = final_path[: -(len(ext) + 1)]
+    else:
+        file_path = resolve_nonconflicting_path(file_path)
 
     return write_record_file(result_df, file_path, compress_method)

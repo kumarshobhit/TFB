@@ -9,6 +9,7 @@ from ts_benchmark.common.constant import ROOT_PATH
 from ts_benchmark.evaluation.strategy.constants import FieldNames
 from ts_benchmark.recording import load_record_data
 from ts_benchmark.report.utils.leaderboard import get_leaderboard
+from ts_benchmark.utils.get_file_name import resolve_nonconflicting_path
 
 # currently we do not support showing or processing artifact columns
 # these columns are dropped as soon as data is loaded in order to save memory
@@ -63,14 +64,14 @@ def report(report_config: dict) -> None:
     # Create final DataFrame and save to CSV
     if report_config.get("save_path", None) is not None:
         save_path = report_config.get("save_path", None)
-        leaderboard_df.to_csv(
-            os.path.join(
-                ROOT_PATH, "result", save_path, report_config["leaderboard_file_name"]
-            ),
-            index=False,
+        output_path = os.path.join(
+            ROOT_PATH, "result", save_path, report_config["leaderboard_file_name"]
         )
+        output_path = resolve_nonconflicting_path(output_path)
+        leaderboard_df.to_csv(output_path, index=False)
     else:
-        leaderboard_df.to_csv(
-            os.path.join(ROOT_PATH, "result", report_config["leaderboard_file_name"]),
-            index=False,
+        output_path = os.path.join(
+            ROOT_PATH, "result", report_config["leaderboard_file_name"]
         )
+        output_path = resolve_nonconflicting_path(output_path)
+        leaderboard_df.to_csv(output_path, index=False)
