@@ -261,25 +261,19 @@ def _build_pe_config(row: pd.Series) -> Optional[dict]:
         return None
 
     if pos_encoding == "sinespe":
-        spe_freq = params.get("spe_freq")
         try:
-            spe_freq = float(spe_freq) if spe_freq is not None else None
+            base_freq = float(params.get("base_freq", 10000.0))
         except (TypeError, ValueError):
-            spe_freq = None
-        spe_k = params.get("spe_k")
-        try:
-            spe_k = int(spe_k) if spe_k is not None else None
-        except (TypeError, ValueError):
-            spe_k = None
+            base_freq = 10000.0
         try:
             n_heads = int(params.get("n_heads", 8))
         except (TypeError, ValueError):
             n_heads = 8
         return {
             "pe_type": "sinespe",
-            "spe_freq": spe_freq if spe_freq and spe_freq > 0 else None,
-            "spe_k": spe_k,
-            "base_freq": np.nan,
+            "spe_freq": np.nan,
+            "spe_k": np.nan,
+            "base_freq": base_freq,
             "n_heads": n_heads,
             "seq_len": seq_len,
             "d_model": d_model,
@@ -304,19 +298,6 @@ def _build_pe_config(row: pd.Series) -> Optional[dict]:
         "seq_len": seq_len,
         "d_model": d_model,
     }
-
-
-def _resolve_spe_k(d_model: int, spe_k: Any) -> int:
-    pair_count = max(1, d_model // 2)
-    default_spe_k = max(0, min(pair_count - 1, d_model // 4))
-    try:
-        parsed = int(spe_k)
-    except (TypeError, ValueError):
-        return default_spe_k
-    if parsed < 0 or parsed >= pair_count:
-        return default_spe_k
-    return parsed
-
 
 def _load_dataset_series(file_name: str) -> Optional[pd.DataFrame]:
     path = os.path.join(FORECASTING_DATASET_PATH, file_name)
@@ -384,25 +365,17 @@ def _normalized_pe_spectrum(
     pe_type: str,
     seq_len: int,
     d_model: int,
-    spe_freq: Optional[float] = None,
-    spe_k: Optional[int] = None,
     base_freq: float = 10000.0,
     n_heads: int = 8,
 ) -> Optional[np.ndarray]:
     positions = np.arange(seq_len, dtype=float)[:, None]
     if pe_type == "sinespe":
-        div_term = np.exp(np.arange(0, d_model, 2, dtype=float) * -(np.log(10000.0) / d_model))
+        if base_freq <= 0:
+            return None
+        div_term = np.exp(np.arange(0, d_model, 2, dtype=float) * -(np.log(base_freq) / d_model))
         encoding = np.zeros((seq_len, d_model), dtype=float)
-        if spe_freq is not None and spe_freq > 0:
-            anchor_idx = _resolve_spe_k(d_model, spe_k)
-            anchor = div_term[anchor_idx]
-            f_max = spe_freq / anchor
-            phase = 2.0 * np.pi * f_max * positions
-            encoding[:, 0::2] = np.sin(phase * div_term)
-            encoding[:, 1::2] = np.cos(phase * div_term)
-        else:
-            encoding[:, 0::2] = np.sin(positions * div_term)
-            encoding[:, 1::2] = np.cos(positions * div_term)
+        encoding[:, 0::2] = np.sin(positions * div_term)
+        encoding[:, 1::2] = np.cos(positions * div_term)
     elif pe_type == "rope":
         if n_heads <= 0 or d_model % n_heads != 0:
             return None
@@ -517,8 +490,6 @@ def enrich_per_feature_with_cosine(per_feature_df: pd.DataFrame) -> pd.DataFrame
             pe_cfg["pe_type"],
             pe_cfg["seq_len"],
             pe_cfg["d_model"],
-            pe_cfg["spe_freq"],
-            pe_cfg["spe_k"],
             pe_cfg["base_freq"],
             pe_cfg["n_heads"],
         )
@@ -527,9 +498,7 @@ def enrich_per_feature_with_cosine(per_feature_df: pd.DataFrame) -> pd.DataFrame
                 pe_cfg["pe_type"],
                 pe_cfg["seq_len"],
                 pe_cfg["d_model"],
-                spe_freq=pe_cfg["spe_freq"] if pe_cfg["pe_type"] == "sinespe" else None,
-                spe_k=pe_cfg["spe_k"] if pe_cfg["pe_type"] == "sinespe" else None,
-                base_freq=pe_cfg["base_freq"] if pe_cfg["pe_type"] == "rope" else 10000.0,
+                base_freq=pe_cfg["base_freq"],
                 n_heads=pe_cfg["n_heads"],
             )
         pe_spec = pe_spec_cache[pe_key]
@@ -546,7 +515,7 @@ def enrich_per_feature_with_cosine(per_feature_df: pd.DataFrame) -> pd.DataFrame
                     "sinespe",
                     pe_cfg["seq_len"],
                     pe_cfg["d_model"],
-                    spe_freq=None,
+                    base_freq=10000.0,
                     n_heads=pe_cfg["n_heads"],
                 )
             else:

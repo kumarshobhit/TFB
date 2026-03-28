@@ -156,18 +156,13 @@ class SimplifiedTST(nn.Module):
             pos_encoder_args = {
                 "d_model": config.d_model, "dropout": config.dropout, "max_len": config.seq_len,
             }
-            if config.pos_encoding == 'sinespe' and hasattr(config, 'spe_freq'):
+            if config.pos_encoding == 'sinespe' and hasattr(config, 'base_freq'):
                 try:
-                    spe_freq = float(config.spe_freq)
+                    base_freq = float(config.base_freq)
                 except (TypeError, ValueError):
-                    spe_freq = None
-                if spe_freq is not None and spe_freq > 0:
-                    pos_encoder_args['spe_freq'] = spe_freq
-                    if hasattr(config, 'spe_k'):
-                        try:
-                            pos_encoder_args['spe_k'] = int(config.spe_k)
-                        except (TypeError, ValueError):
-                            pass
+                    base_freq = None
+                if base_freq is not None and base_freq > 0:
+                    pos_encoder_args['base_freq'] = base_freq
             
             self.pos_enc = pos_encoder_class(**pos_encoder_args)
             encoder_layer = nn.TransformerEncoderLayer(

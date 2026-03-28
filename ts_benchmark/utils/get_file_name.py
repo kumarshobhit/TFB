@@ -83,7 +83,7 @@ def build_pe_tag_from_model_params(model_params: Any) -> str:
     """
     Build a PE tag from model params:
     - rope_<base>
-    - sinespe_<freq>
+    - sinespe_<base>
     - sinespe_default
     """
     params = parse_dict_like(model_params)
@@ -92,16 +92,16 @@ def build_pe_tag_from_model_params(model_params: Any) -> str:
         base_freq = params.get("base_freq", 10000.0)
         return sanitize_filename_token(f"rope_{format_float_compact(base_freq)}")
     if pos_encoding == "sinespe":
-        spe_freq = params.get("spe_freq", None)
-        if spe_freq is None:
+        base_freq = params.get("base_freq", None)
+        if base_freq is None:
             return "sinespe_default"
         try:
-            spe_float = float(spe_freq)
+            base_float = float(base_freq)
         except (TypeError, ValueError):
             return "sinespe_default"
-        if spe_float <= 0:
+        if base_float <= 0:
             return "sinespe_default"
-        return sanitize_filename_token(f"sinespe_{format_float_compact(spe_float)}")
+        return sanitize_filename_token(f"sinespe_{format_float_compact(base_float)}")
     return ""
 
 
