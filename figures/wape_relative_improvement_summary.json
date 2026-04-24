@@ -1,0 +1,90 @@
+[
+  {
+    "dataset": "ETTh1",
+    "method": "RoPE",
+    "default_mean_wape": 32.85192212923238,
+    "best_mean_wape": 32.332526918307444,
+    "default_std_wape": 0.2738392233722598,
+    "best_std_wape": 0.3134175815918194,
+    "best_k": 1,
+    "best_base_freq": 45200.09741519552,
+    "relative_improvement_pct": 1.581019244115291
+  },
+  {
+    "dataset": "ETTh1",
+    "method": "SineSPE",
+    "default_mean_wape": 34.36797076804439,
+    "best_mean_wape": 34.07585140117976,
+    "default_std_wape": 0.0955927577693537,
+    "best_std_wape": 0.1558049679997193,
+    "best_k": 4,
+    "best_base_freq": 14.58091716442549,
+    "relative_improvement_pct": 0.849975603262094
+  },
+  {
+    "dataset": "ETTm1",
+    "method": "RoPE",
+    "default_mean_wape": 27.452742600226543,
+    "best_mean_wape": 27.54796504937048,
+    "default_std_wape": 0.1879618986370007,
+    "best_std_wape": 0.2011252409805304,
+    "best_k": 3,
+    "best_base_freq": 1436.171928764849,
+    "relative_improvement_pct": -0.34685951247417507
+  },
+  {
+    "dataset": "ETTm1",
+    "method": "SineSPE",
+    "default_mean_wape": 27.74677353125412,
+    "best_mean_wape": 27.661292863229622,
+    "default_std_wape": 0.0970416469377109,
+    "best_std_wape": 0.1065686450725396,
+    "best_k": 3,
+    "best_base_freq": 1436.171928764849,
+    "relative_improvement_pct": 0.30807426286235584
+  },
+  {
+    "dataset": "Weather",
+    "method": "RoPE",
+    "default_mean_wape": 8.607661912641172,
+    "best_mean_wape": 8.438426752558344,
+    "default_std_wape": 0.106806177833534,
+    "best_std_wape": 0.0178575989118705,
+    "best_k": 4,
+    "best_base_freq": 131.29124656075606,
+    "relative_improvement_pct": 1.9660990615150613
+  },
+  {
+    "dataset": "Weather",
+    "method": "SineSPE",
+    "default_mean_wape": 9.089985358177016,
+    "best_mean_wape": 9.07492274794362,
+    "default_std_wape": 0.2056715699618761,
+    "best_std_wape": 0.1888574429441573,
+    "best_k": 7,
+    "best_base_freq": 16.233809339931238,
+    "relative_improvement_pct": 0.16570555000779036
+  },
+  {
+    "dataset": "Solar",
+    "method": "RoPE",
+    "default_mean_wape": 108.65695420951236,
+    "best_mean_wape": 105.2057085010603,
+    "default_std_wape": 3.605392978715152,
+    "best_std_wape": 6.595884588559814,
+    "best_k": 2,
+    "best_base_freq": 17237.391423477242,
+    "relative_improvement_pct": 3.176276873910316
+  },
+  {
+    "dataset": "Solar",
+    "method": "SineSPE",
+    "default_mean_wape": 123.5506311352565,
+    "best_mean_wape": 118.90430238041336,
+    "default_std_wape": 17.51436370732867,
+    "best_std_wape": 16.309219511518606,
+    "best_k": 2,
+    "best_base_freq": 17237.391423477242,
+    "relative_improvement_pct": 3.7606677619935365
+  }
+]

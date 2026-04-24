@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Run the selected SinePE paper comparisons for one dataset and one seed.
+# This launches the calibrated base, the default base, and the fixed control
+# bases used in the main SinePE results table.
+
 DATASET="${1:?dataset required}"
 SEED="${2:?seed required}"
 GPU="${3:-0}"

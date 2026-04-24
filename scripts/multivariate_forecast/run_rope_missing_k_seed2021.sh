@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Fill in missing seed-2021 RoPE k-screening runs for the appendix analysis.
+
 DATASET="${1:?dataset required}"
 GPU="${2:-0}"
 

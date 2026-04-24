@@ -1,3 +1,10 @@
+"""Build report-facing qualitative forecast comparison figures.
+
+The script can generate a single eye-test plot from explicit archive paths or
+run in batch mode for the built-in RoPE comparisons used in the report and
+appendix.
+"""
+
 import argparse
 import base64
 import io
@@ -21,6 +28,10 @@ EYE_TEST_FONT_SIZES = {
     "legend": 14,
     "annotation": 12.5,
 }
+
+DEFAULT_COLOR = "#1f77b4"
+CALIBRATED_COLOR = "#ff7f0e"
+GROUND_TRUTH_COLOR = "black"
 
 
 def parse_args() -> argparse.Namespace:
@@ -282,6 +293,10 @@ def verify_runs_match(default_row: pd.Series, calibrated_row: pd.Series) -> Dict
     calibrated_params = json_load(calibrated_row["model_params"])
     default_base = default_params.pop("base_freq", None)
     calibrated_base = calibrated_params.pop("base_freq", None)
+    if default_base is None:
+        default_base = 10000.0
+    if calibrated_base is None:
+        calibrated_base = 10000.0
     if default_params != calibrated_params:
         raise ValueError("Model params differ by more than base_freq")
 
@@ -537,6 +552,7 @@ def humanize_feature_name(name: str) -> str:
     mapping = {
         "HUFL": "High Useful Load",
         "MUFL": "Middle Useful Load",
+        "LULL": "Low Useful Load",
         "sh (g/kg)": "Specific Humidity",
     }
     return mapping.get(name, name)
@@ -590,28 +606,34 @@ def plot_eye_test_axes(
     x = np.arange(len(window_df))
     dataset_label = str(run_info["dataset"]).replace(".csv", "")
     feature_label = humanize_feature_name(str(feature_row["feature_name"]))
-    ax_main.plot(x, window_df["actual"], color="black", linewidth=2.5, label="Ground Truth")
+    ax_main.plot(x, window_df["actual"], color=GROUND_TRUTH_COLOR, linewidth=2.8, label="Ground Truth")
     ax_main.plot(
         x,
         window_df["pred_default"],
-        color="#9b6a6c",
+        color=DEFAULT_COLOR,
         linewidth=2.1,
+        linestyle="--",
         alpha=0.9,
         label=f"Default ({run_info['default_base_freq']:.0f})",
     )
     ax_main.plot(
         x,
         window_df["pred_calibrated"],
-        color="#0a7f6f",
+        color=CALIBRATED_COLOR,
         linewidth=2.3,
         alpha=0.95,
         label=f"Calibrated ({run_info['calibrated_base_freq']:.3f})",
     )
     ax_main.set_title(f"{dataset_label} — {feature_label}")
     ax_main.set_ylabel("Value")
-    ax_main.grid(alpha=0.18, linewidth=0.6)
+    ax_main.grid(alpha=0.2, linewidth=0.6)
+    ax_main.spines["top"].set_visible(False)
+    ax_main.spines["right"].set_visible(False)
     if show_legend:
-        ax_main.legend(loc="upper left", frameon=False)
+        if dataset_label in {"ETTh1", "ETTm1"}:
+            ax_main.legend(loc="lower left", frameon=False)
+        else:
+            ax_main.legend(loc="upper left", frameon=False)
 
     metadata_text = (
         f"{dataset_label}\n"
@@ -640,15 +662,22 @@ def plot_eye_test_axes(
         transform=ax_main.transAxes,
         ha=ha,
         va=va,
-        fontsize=EYE_TEST_FONT_SIZES["annotation"],
-        bbox={"boxstyle": "round,pad=0.55", "facecolor": "white", "alpha": 1.0, "edgecolor": "#cccccc"},
+        fontsize=11.0,
+        bbox={"boxstyle": "round,pad=0.45", "facecolor": "white", "alpha": 0.7, "edgecolor": "#cccccc"},
     )
 
-    ax_err.plot(x, window_df["abs_err_default"], color="#b75d69", linewidth=1.8, label="|Default - Truth|")
+    ax_err.plot(
+        x,
+        window_df["abs_err_default"],
+        color=DEFAULT_COLOR,
+        linewidth=1.8,
+        linestyle="--",
+        label="|Default - Truth|",
+    )
     ax_err.plot(
         x,
         window_df["abs_err_calibrated"],
-        color="#1f9d8f",
+        color=CALIBRATED_COLOR,
         linewidth=1.9,
         label="|Calibrated - Truth|",
     )
@@ -657,11 +686,13 @@ def plot_eye_test_axes(
         window_df["abs_err_default"],
         window_df["abs_err_calibrated"],
         where=window_df["abs_err_default"] >= window_df["abs_err_calibrated"],
-        color="#a7dfd7",
-        alpha=0.18,
+        color=CALIBRATED_COLOR,
+        alpha=0.12,
     )
     ax_err.set_ylabel("Absolute Error")
-    ax_err.grid(alpha=0.18, linewidth=0.6)
+    ax_err.grid(alpha=0.2, linewidth=0.6)
+    ax_err.spines["top"].set_visible(False)
+    ax_err.spines["right"].set_visible(False)
     if show_legend:
         ax_err.legend(loc="upper right", frameon=False)
 
@@ -693,7 +724,7 @@ def render_eye_test_figure(
         end=end,
         show_legend=True,
     )
-    ax_err.set_xlabel("Continuous test timestamp within selected window")
+    ax_err.set_xlabel("Time step (test window)")
     fig.tight_layout(rect=[0, 0.03, 1, 0.99], h_pad=1.4)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
@@ -835,8 +866,8 @@ def save_etth1_k_sweep_figure(root: Path) -> Path:
     out_path = figures_dir / "k_sweep_etth1.png"
 
     fig, ax = plt.subplots(figsize=(8.5, 5.2))
-    ax.plot(curve["k"], curve["wape"], marker="o", linewidth=2.0, color="#0a7f6f")
-    ax.axvline(best_row["k"], linestyle="--", color="#9b6a6c", linewidth=1.5)
+    ax.plot(curve["k"], curve["wape"], marker="o", linewidth=2.0, color=CALIBRATED_COLOR)
+    ax.axvline(best_row["k"], linestyle="--", color=DEFAULT_COLOR, linewidth=1.5)
     ax.axhline(baseline["wape"], linestyle="--", color="#666666", linewidth=1.3)
     ax.annotate(
         f"best k={int(best_row['k'])}\nWAPE={best_row['wape']:.3f}",
@@ -848,7 +879,7 @@ def save_etth1_k_sweep_figure(root: Path) -> Path:
         va="bottom",
     )
     ax.annotate(
-        f"k=3: WAPE={k3_row['wape']:.2f}\n(worse than default)",
+        f"k=3\nWAPE={k3_row['wape']:.2f}",
         xy=(k3_row["k"], k3_row["wape"]),
         xytext=(k3_row["k"] + 0.35, k3_row["wape"] - 0.10),
         arrowprops={"arrowstyle": "->", "color": "#555555", "lw": 1.0},
@@ -871,6 +902,8 @@ def save_etth1_k_sweep_figure(root: Path) -> Path:
     ax.set_ylabel("WAPE")
     ax.set_xticks(curve["k"].tolist())
     ax.grid(alpha=0.2, linewidth=0.6)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
     fig.tight_layout()
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)

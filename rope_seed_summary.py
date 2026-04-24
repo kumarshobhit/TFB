@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Summarize multi-seed RoPE runs into report-facing comparison tables.
+
+This script scans saved `test_report_rope_*.csv` files for the selected
+datasets/seeds, extracts WAPE, and writes run-level and aggregated summaries
+used by the report figures and tables.
+"""
 import argparse
 import csv
 import os

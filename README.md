@@ -21,6 +21,17 @@
 </div>
 
 > [!IMPORTANT]
+> This branch is the **master's project submission** for *Investigating the Impact of Frequency-Aligned Positional Encodings*.
+> 
+> If you are opening this repository from the report, start with:
+> - [PROJECT_REPRODUCTION.md](./PROJECT_REPRODUCTION.md): project-specific code map, exact reproduction commands, and report artifact traceability
+> - [scripts/project_reproduce_artifacts.sh](./scripts/project_reproduce_artifacts.sh): rebuild the report-facing summaries, figures, and statistics from the saved `result/` folders
+> - [ts_benchmark/baselines/tst/tst.py](./ts_benchmark/baselines/tst/tst.py): custom TST implementation with RoPE and SinePE support
+
+> [!NOTE]
+> The repository is based on the upstream TFB benchmark codebase. The project-specific additions for the master's submission are layered on top of that codebase and documented in `PROJECT_REPRODUCTION.md`.
+
+> [!IMPORTANT]
 > 1、If you find this project helpful, please don't forget to give it a ⭐ Star to show your support. Thank you!
 > 
 > 2、We have retested the results of some algorithms, which may differ from those in the TFB paper. You can find the hyperparameters we ultimately selected for each algorithm on each dataset in the [scripts](https://github.com/decisionintelligence/TFB/tree/master/scripts) folder, and their corresponding algorithm test results can be found on the [OpenTS](https://decisionintelligence.github.io/OpenTS/result/#multivariate_forecasting)!

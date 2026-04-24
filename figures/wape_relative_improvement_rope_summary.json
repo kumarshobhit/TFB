@@ -1,0 +1,90 @@
+[
+  {
+    "dataset": "ETTh1",
+    "method": "RoPE",
+    "default_mean_wape": 32.85192212923238,
+    "default_std_wape": 0.2738392233722598,
+    "best_random": {
+      "label": "random50000",
+      "pretty_label": "base=50000",
+      "base_freq": 50000.0,
+      "k": null,
+      "mean_wape": 32.4624804628465,
+      "std_wape": 0.0775073480961466,
+      "relative_improvement_pct": 1.1854456030118974
+    },
+    "calibrated_best": {
+      "base_freq": 45200.09741519552,
+      "k": 1,
+      "mean_wape": 32.332526918307444,
+      "std_wape": 0.3134175815918194,
+      "relative_improvement_pct": 1.581019244115291
+    }
+  },
+  {
+    "dataset": "ETTm1",
+    "method": "RoPE",
+    "default_mean_wape": 27.452742600226543,
+    "default_std_wape": 0.1879618986370007,
+    "best_random": {
+      "label": "random500",
+      "pretty_label": "base=500",
+      "base_freq": 500.0,
+      "k": null,
+      "mean_wape": 27.301835508886096,
+      "std_wape": 0.0897974775656618,
+      "relative_improvement_pct": 0.5496976879067855
+    },
+    "calibrated_best": {
+      "base_freq": 1436.171928764849,
+      "k": 3,
+      "mean_wape": 27.54796504937048,
+      "std_wape": 0.2011252409805304,
+      "relative_improvement_pct": -0.34685951247417507
+    }
+  },
+  {
+    "dataset": "Weather",
+    "method": "RoPE",
+    "default_mean_wape": 8.607661912641172,
+    "default_std_wape": 0.106806177833534,
+    "best_random": {
+      "label": "random500",
+      "pretty_label": "base=500",
+      "base_freq": 500.0,
+      "k": null,
+      "mean_wape": 8.607993537479762,
+      "std_wape": 0.3815868154718301,
+      "relative_improvement_pct": -0.0038526703529526934
+    },
+    "calibrated_best": {
+      "base_freq": 131.29124656075606,
+      "k": 4,
+      "mean_wape": 8.438426752558344,
+      "std_wape": 0.0178575989118705,
+      "relative_improvement_pct": 1.9660990615150613
+    }
+  },
+  {
+    "dataset": "Solar",
+    "method": "RoPE",
+    "default_mean_wape": 108.65695420951236,
+    "default_std_wape": 3.605392978715152,
+    "best_random": {
+      "label": "random500",
+      "pretty_label": "base=500",
+      "base_freq": 500.0,
+      "k": null,
+      "mean_wape": 105.2731200703692,
+      "std_wape": 5.062573799165726,
+      "relative_improvement_pct": 3.114236142325922
+    },
+    "calibrated_best": {
+      "base_freq": 17237.391423477242,
+      "k": 2,
+      "mean_wape": 105.2057085010603,
+      "std_wape": 6.595884588559814,
+      "relative_improvement_pct": 3.176276873910316
+    }
+  }
+]

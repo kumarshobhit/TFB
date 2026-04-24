@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Summarize multi-seed reduced-dimension SinePE runs.
+
+The script mirrors the RoPE seed aggregation pipeline, but targets
+`test_report_sinespe_*.csv` outputs and writes the paper-facing summary
+tables for the SinePE experiments.
+"""
 import argparse
 import csv
 import os

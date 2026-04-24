@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Plot dataset-level FFT magnitude spectra used in the report."""
 import argparse
 import csv
 import os
@@ -19,11 +20,11 @@ plt.rc("ytick", labelsize=14)
 plt.rc("legend", fontsize=14)
 
 
-ANNOTATION_OFFSETS = {
-    "ETTh1": (10, -48),
-    "ETTm1": (10, -48),
-    "Solar": (10, -48),
-    "Weather": (10, -48),
+ANNOTATION_TEXT_POSITIONS = {
+    "ETTh1": (0.11, 0.76),
+    "ETTm1": (0.12, 0.78),
+    "Solar": (0.12, 0.83),
+    "Weather": None,
 }
 
 
@@ -141,6 +142,10 @@ def build_figure(
     output_path: str,
     summary_path: str,
     min_peak_freq: float,
+    normalize: bool,
+    log_scale: bool,
+    log_y_min: float,
+    log_y_max: float,
 ) -> List[Dict[str, object]]:
     fig, axes = plt.subplots(2, 2, figsize=(14, 9), sharex=True)
     axes_list = list(axes.flatten())
@@ -153,23 +158,60 @@ def build_figure(
         peak_freq = float(freqs[peak_idx])
         peak_mag = float(magnitudes[peak_idx])
         peak_period = 1.0 / peak_freq
+        plot_magnitudes = magnitudes.copy()
+        peak_mag_for_plot = peak_mag
+        if normalize:
+            denom = float(np.max(plot_magnitudes))
+            if denom > 0.0:
+                plot_magnitudes = plot_magnitudes / denom
+                peak_mag_for_plot = peak_mag / denom
 
-        ax.plot(freqs, magnitudes, color="#1f4e79", linewidth=1.3)
+        ax.plot(freqs, plot_magnitudes, color="#1f4e79", linewidth=1.3)
         ax.axvline(peak_freq, color="#b22222", linestyle="--", linewidth=1.0)
-        ax.scatter([peak_freq], [peak_mag], color="#b22222", s=38, zorder=3)
-        ax.annotate(
-            f"f_d={peak_freq:.5f}\nP={peak_period:.1f}",
-            xy=(peak_freq, peak_mag),
-            xytext=ANNOTATION_OFFSETS.get(config.name, (10, 10)),
-            textcoords="offset points",
-            fontsize=13,
-            color="#b22222",
-            bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "none", "alpha": 0.85},
-        )
+        ax.scatter([peak_freq], [peak_mag_for_plot], color="#b22222", s=38, zorder=3)
+        text_position = ANNOTATION_TEXT_POSITIONS.get(config.name)
+        if text_position is not None:
+            ax.text(
+                text_position[0],
+                text_position[1],
+                f"f_d={peak_freq:.5f}\nP={peak_period:.1f}",
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=13,
+                color="#b22222",
+                bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "none", "alpha": 0.85},
+            )
         ax.set_title(f"{config.name} (channels={n_channels})", fontsize=18)
+        ax.set_xlabel("Frequency (cycles / time step)", fontsize=14)
+        ax.set_ylabel(
+            "Normalized Mean FFT Magnitude" if normalize else "Mean FFT Magnitude",
+            fontsize=14,
+        )
+        ax.text(
+            0.98,
+            0.95,
+            "Mean across channels"
+            if not normalize and not log_scale
+            else "Mean across channels\n(normalized)"
+            if normalize
+            else "Mean across channels\n(log scale)",
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=11,
+            color="#4c4c4c",
+            bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "none", "alpha": 0.75},
+        )
         ax.set_xlim(0.0, 0.5)
+        if normalize:
+            ax.set_ylim(0.0, 1.05)
+        if log_scale:
+            ax.set_yscale("log")
+            ax.set_ylim(log_y_min, log_y_max)
         ax.grid(alpha=0.25, linewidth=0.6)
-        ax.ticklabel_format(axis="y", style="plain", useOffset=False)
+        if not log_scale:
+            ax.ticklabel_format(axis="y", style="plain", useOffset=False)
 
         summary_rows.append(
             {
@@ -187,10 +229,8 @@ def build_figure(
     for ax in axes_list[len(datasets) :]:
         ax.axis("off")
 
-    fig.supxlabel("Frequency (cycles / time step)")
-    fig.supylabel("Magnitude")
-    fig.suptitle("Raw Dataset Frequency Spectra for RoPE Base Selection", fontsize=20)
-    fig.tight_layout()
+    fig.suptitle("Aggregated Frequency Spectra Across Dataset Channels", fontsize=20)
+    fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.96])
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
@@ -226,6 +266,28 @@ def main() -> None:
         default=1.0 / 336.0,
         help="Ignore frequencies below this threshold when selecting the highlighted peak. The full raw spectrum is still plotted.",
     )
+    parser.add_argument(
+        "--normalize",
+        action="store_true",
+        help="Normalize each dataset spectrum by its maximum magnitude to enable common y-axis comparison.",
+    )
+    parser.add_argument(
+        "--log-scale",
+        action="store_true",
+        help="Plot the FFT magnitude on a logarithmic y-axis.",
+    )
+    parser.add_argument(
+        "--log-y-min",
+        type=float,
+        default=1e1,
+        help="Lower y-limit when --log-scale is used.",
+    )
+    parser.add_argument(
+        "--log-y-max",
+        type=float,
+        default=1e6,
+        help="Upper y-limit when --log-scale is used.",
+    )
     args = parser.parse_args()
 
     datasets = _parse_dataset_items(args.dataset)
@@ -234,6 +296,10 @@ def main() -> None:
         output_path=args.output,
         summary_path=args.summary_csv,
         min_peak_freq=args.min_peak_freq,
+        normalize=args.normalize,
+        log_scale=args.log_scale,
+        log_y_min=args.log_y_min,
+        log_y_max=args.log_y_max,
     )
 
     print(f"Saved figure: {os.path.abspath(args.output)}")

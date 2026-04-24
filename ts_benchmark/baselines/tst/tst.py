@@ -1,3 +1,11 @@
+"""Custom TST backbone used for the master's project experiments.
+
+This variant adds the positional-encoding options used in the report,
+including RoPE with configurable `base_freq` and a calibrated SinePE mode.
+It is the main model implementation referenced by the project-specific
+reproduction guide.
+"""
+
 from ts_benchmark.baselines.deep_forecasting_model_base import DeepForecastingModelBase
 import torch
 import torch.nn as nn

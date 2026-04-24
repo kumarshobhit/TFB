@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Summarize seed-2021 k-screening coverage for RoPE or SinePE runs.
+
+This helper is used to collate which calibrated `k` values were actually run
+for the screening stage and to recover their WAPE values from saved report
+files.
+"""
 import argparse
 import csv
 import math

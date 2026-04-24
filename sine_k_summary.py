@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Collate reduced SinePE k-screening runs into a compact CSV summary."""
 import argparse
 import csv
 import math

@@ -1,0 +1,5 @@
+dataset,source_path,n_channels_used,dominant_freq,dominant_period_steps,dominant_magnitude,min_peak_freq,top_5_freqs
+ETTh1,dataset/forecasting/ETTh1.csv,7,0.04168,23.99,17658.312774,0.00298,"0.00011,0.04168,0.00006,0.00023,0.00017"
+ETTm1,dataset/forecasting/ETTm1.csv,7,0.01042,95.98,70670.958007,0.00298,"0.00003,0.01042,0.00001,0.00006,0.00004"
+Solar,dataset/forecasting/Solar_ci64_every2.csv,64,0.00694,144.00,272858.078981,0.00298,"0.00694,0.01389,0.00002,0.00696,0.02778"
+Weather,dataset/forecasting/Weather.csv,21,0.00695,143.98,1429986.652930,0.00298,"0.00695,0.00002,0.00696,0.01389,0.00693"
